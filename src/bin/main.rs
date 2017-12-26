@@ -110,8 +110,6 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
         let mut clens: Vec<u32> = contents.split("\n").scan(0, |s, i| {*s = *s + i.len() as u32 + 1; Some(*s) }).collect();
         clens.insert(0, 0);
 
-        println!("{:#?}", clens);
-
         let file = Prose { name: file.file_name().unwrap().to_str().unwrap(), text: &contents, clens: &clens[..] };
 
         let mut nm = file.lint(&lints, 0)?;
