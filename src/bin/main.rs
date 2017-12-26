@@ -33,10 +33,6 @@ struct Opt {
   #[structopt(short = "V", long = "verbose", help = "More verbose error messages that are larger and feature caret diagnostics")]
   verbose: bool,
 
-  // TODO: needed?
-  #[structopt(long = "thicc", help = "T H I C C  lint messages (functionally the same as verbose)")]
-  thicc: bool,
-
   // TODO: needed? we can rely on the outside world for recursive behavior
   #[structopt(short = "r", long = "recur", help = "Recurse through folders for linters")]
   recurse: bool,

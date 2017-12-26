@@ -5,7 +5,7 @@
 - [ ] futures stream
 - [ ] Tests
 - [ ] Manual concurrency?
-- [ ] thicc output
+- [ ] verbose output
 - [ ] json output
 - [ ] glob? (this would deal with the recursion problem)
 
