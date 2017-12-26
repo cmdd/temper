@@ -87,10 +87,9 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
           }
           let llen = line.len() as u32;
           let blen = line.as_bytes().len();
-          // Add two characters to account for the newline
-          clens.push(last + llen + 2);
-          last += llen + 2;
-          // Add one byte to account for the newline
+          // We add one to each of these to account for the newline, which is one byte
+          clens.push(last + llen + 1);
+          last += llen + 1;
           curby += blen + 1;
         }
         bytes.push(curby - 1);
@@ -108,8 +107,10 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
         }).reduce(|| Ok(Vec::new()), &bind)
       },
       None => {
-        let mut clens: Vec<u32> = contents.split("\n").scan(0, |s, i| {*s = *s + i.len() as u32 + 2; Some(*s) }).collect();
+        let mut clens: Vec<u32> = contents.split("\n").scan(0, |s, i| {*s = *s + i.len() as u32 + 1; Some(*s) }).collect();
         clens.insert(0, 0);
+
+        println!("{:#?}", clens);
 
         let file = Prose { name: file.file_name().unwrap().to_str().unwrap(), text: &contents, clens: &clens[..] };
 
@@ -140,7 +141,7 @@ fn main() {
 
   match go(opt) {
     Ok(x)  => {
-      if !(mopt.verbose || mopt.thicc) {
+      if !(mopt.verbose) {
         let mut t = 0;
         for m in &x {
           t += 1;
