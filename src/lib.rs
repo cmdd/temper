@@ -7,6 +7,6 @@ extern crate serde;
 extern crate serde_derive;
 extern crate strfmt;
 
-pub mod lintset;
+pub mod lint;
 pub mod prose;
 mod util;

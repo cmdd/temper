@@ -5,7 +5,7 @@ use regex::{Regex, RegexSet};
 use std::collections::HashMap;
 use strfmt::strfmt;
 
-use lintset::*;
+use lint::*;
 use util::*;
 
 #[derive(Debug, Serialize)]
@@ -41,7 +41,7 @@ impl<'a> Prose<'a> {
 
     // TODO: Compared to sequential, this runs ~14% faster
     // but we can do better (futures-pool, may, Arc<Mutex<T>>)
-    pub fn lint(&self, lints: &Vec<Lint>, bo: usize) -> Result<Vec<Match>, Error> {
+    pub fn lint(&self, lints: &Lintset, bo: usize) -> Result<Vec<Match>, Error> {
         let bind = |a: Result<Vec<Match>, Error>,
                     b: Result<Vec<Match>, Error>|
          -> Result<Vec<Match>, Error> {

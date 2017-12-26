@@ -75,12 +75,12 @@ impl From<TomlLint> for Lint {
     }
 }
 
-struct Lintset(Vec<Lint>);
+pub type Lintset = Vec<Lint>;
 
 // TODO: impl From<Vec<PathBuf>>
-pub fn linters(paths: Vec<PathBuf>, recursive: bool) -> Result<Vec<Lint>, Error> {
+pub fn linters(paths: Vec<PathBuf>, recursive: bool) -> Result<Lintset, Error> {
     let mut q = VecDeque::from(paths);
-    let mut res: Vec<Lint> = Vec::new();
+    let mut res: Lintset = Vec::new();
     while !q.is_empty() {
         match q.pop_front().unwrap() {
             ref x if x.is_file() => {

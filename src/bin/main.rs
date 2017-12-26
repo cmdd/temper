@@ -20,7 +20,7 @@ use std::result::Result;
 use std::str;
 use structopt::StructOpt;
 
-use temper::lintset::*;
+use temper::lint::*;
 use temper::prose::*;
 
 // TODO: Probably replace with clap... structopt is too ambiguous
@@ -67,7 +67,7 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
     let split = opt.split;
 
     // TODO: stdin
-    let lints: Vec<Lint> = linters(
+    let lints: Lintset = linters(
         opt.lints.into_iter().map(PathBuf::from).collect(),
         opt.recurse,
     )?;
