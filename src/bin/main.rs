@@ -4,13 +4,16 @@
 extern crate temper;
 
 extern crate failure;
+extern crate glob;
 extern crate memmap;
 extern crate rayon;
 extern crate structopt;
 #[macro_use]
 extern crate structopt_derive;
+extern crate termcolor;
 
 use failure::Error;
+use glob::glob;
 use memmap::Mmap;
 use rayon::prelude::*;
 use std::cmp::{self, Ordering};
@@ -18,6 +21,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::result::Result;
 use std::str;
+use std::sync::Arc;
 use structopt::StructOpt;
 
 use temper::lint::*;
@@ -67,10 +71,13 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
     let split = opt.split;
 
     // TODO: stdin
-    let lints: Lintset = linters(
-        opt.lints.into_iter().map(PathBuf::from).collect(),
-        opt.recurse,
-    )?;
+    let mut fs = Vec::new();
+    for f in opt.lints.into_iter() {
+        for entry in glob(&f)? {
+            fs.push(entry?);
+        }
+    }
+    let lints: Lintset = linters(fs.iter().map(PathBuf::from).collect())?;
     let files: Vec<PathBuf> = opt.input.into_iter().map(PathBuf::from).collect();
 
     files
@@ -161,10 +168,6 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
             }
         })
         .reduce(|| Ok(Vec::new()), &bind)
-}
-
-fn pprint(m: &Match) {
-    // println!("{}:{}:{}", m)
 }
 
 fn main() {

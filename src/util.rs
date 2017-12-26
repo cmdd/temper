@@ -16,11 +16,11 @@ pub fn walk<T: PartialEq>(ix: usize, v: &[T]) -> usize {
     let val = &v[ix];
     let max = v.len();
 
-    for i in ix..max {
-        if &v[i] != val {
+    for (i, vn) in v.iter().enumerate().skip(ix) {
+        if vn != val {
             return i - 1;
         }
     }
 
-    return max - 1;
+    max - 1
 }

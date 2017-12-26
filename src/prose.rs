@@ -32,7 +32,7 @@ impl<'a> Prose<'a> {
 
         match self.clens.binary_search(&offset) {
             Ok(linum) => {
-                let real = walk(linum, &self.clens);
+                let real = walk(linum, self.clens);
                 (real as u32 + 1, 1)
             }
             Err(linum) => (linum as u32, offset - self.clens[linum - 1] + 1),
@@ -41,7 +41,7 @@ impl<'a> Prose<'a> {
 
     // TODO: Compared to sequential, this runs ~14% faster
     // but we can do better (futures-pool, may, Arc<Mutex<T>>)
-    pub fn lint(&self, lints: &Lintset, bo: usize) -> Result<Vec<Match>, Error> {
+    pub fn lint(&self, lints: &[Lint], bo: usize) -> Result<Vec<Match>, Error> {
         let bind = |a: Result<Vec<Match>, Error>,
                     b: Result<Vec<Match>, Error>|
          -> Result<Vec<Match>, Error> {
@@ -65,7 +65,7 @@ impl<'a> Prose<'a> {
         let set = RegexSet::new(&regexes)?;
         let matches: Vec<usize> = set.matches(self.text).into_iter().collect();
 
-        let res = matches
+        matches
             .par_iter()
             .map(|rix| -> Result<Vec<Match>, Error> {
                 let regex = regexes.get_index(*rix).unwrap();
@@ -89,7 +89,7 @@ impl<'a> Prose<'a> {
                                     column: c,
                                     lint: String::from(name),
                                     severity: lint.severity,
-                                    msg: strfmt(msg_mapping, &map).unwrap_or(v.clone()),
+                                    msg: strfmt(msg_mapping, &map).unwrap_or_else(|_| v.clone()),
                                 });
                             }
                             Some(&None) => {
@@ -103,7 +103,7 @@ impl<'a> Prose<'a> {
                                     column: c,
                                     lint: String::from(name),
                                     severity: lint.severity,
-                                    msg: strfmt(msg, &map).unwrap_or(String::from(msg)),
+                                    msg: strfmt(msg, &map).unwrap_or_else(|_| String::from(msg)),
                                 });
                             }
                             None => {}
@@ -112,8 +112,6 @@ impl<'a> Prose<'a> {
                 }
                 Ok(ires)
             })
-            .reduce(|| Ok(Vec::new()), bind);
-
-        res
+            .reduce(|| Ok(Vec::new()), bind)
     }
 }

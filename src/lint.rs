@@ -2,7 +2,6 @@
 extern crate toml;
 
 use failure::Error;
-use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::fmt;
 use std::fs;
@@ -78,32 +77,14 @@ impl From<TomlLint> for Lint {
 pub type Lintset = Vec<Lint>;
 
 // TODO: impl From<Vec<PathBuf>>
-pub fn linters(paths: Vec<PathBuf>, recursive: bool) -> Result<Lintset, Error> {
-    let mut q = VecDeque::from(paths);
+pub fn linters(paths: Vec<PathBuf>) -> Result<Lintset, Error> {
     let mut res: Lintset = Vec::new();
-    while !q.is_empty() {
-        match q.pop_front().unwrap() {
-            ref x if x.is_file() => {
-                let mut f = fs::File::open(x)?;
-                let mut contents = String::new();
-                f.read_to_string(&mut contents)?;
-                let lint: Lint = <Lint as From<TomlLint>>::from(toml::from_str(&contents)?);
-                res.push(lint);
-            }
-            ref x if x.is_dir() => for entry in fs::read_dir(x)? {
-                let path = entry?.path();
-                if path.is_dir() && recursive {
-                    q.push_back(path);
-                } else {
-                    if path.is_file() {
-                        q.push_back(path);
-                    }
-                }
-            },
-            _ => {
-                // Here is where we'd return an error
-            }
-        }
+    for path in paths {
+        let mut f = fs::File::open(path)?;
+        let mut contents = String::new();
+        f.read_to_string(&mut contents)?;
+        let lint: Lint = <Lint as From<TomlLint>>::from(toml::from_str(&contents)?);
+        res.push(lint);
     }
     Ok(res)
 }
