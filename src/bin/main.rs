@@ -73,7 +73,7 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
     )?;
     let files: Vec<PathBuf> = opt.input.into_iter().map(PathBuf::from).collect();
 
-    let matches = files
+    files
         .par_iter()
         .map(|file| -> Result<Vec<Match>, Error> {
             let mut clens: Vec<u32> = vec![0];
@@ -92,7 +92,7 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
                     let mut bytes: Vec<usize> = vec![0];
                     let mut curby = 0;
 
-                    for (i, line) in contents.split("\n").enumerate() {
+                    for (i, line) in contents.split('\n').enumerate() {
                         if i % lps == 0 && i != 0 {
                             bytes.push(curby);
                         }
@@ -132,7 +132,7 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
                 }
                 None => {
                     let mut clens: Vec<u32> = contents
-                        .split("\n")
+                        .split('\n')
                         .scan(0, |s, i| {
                             *s = *s + i.len() as u32 + 1;
                             Some(*s)
@@ -142,7 +142,7 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
 
                     let file = Prose {
                         name: file.file_name().unwrap().to_str().unwrap(),
-                        text: &contents,
+                        text: contents,
                         clens: &clens[..],
                     };
 
@@ -160,9 +160,7 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
                 }
             }
         })
-        .reduce(|| Ok(Vec::new()), &bind);
-
-    matches
+        .reduce(|| Ok(Vec::new()), &bind)
 }
 
 fn pprint(m: &Match) {
