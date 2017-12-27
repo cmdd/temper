@@ -18,11 +18,13 @@ use memmap::Mmap;
 use rayon::prelude::*;
 use std::cmp::{self, Ordering};
 use std::fs::File;
+use std::io::Write;
 use std::path::PathBuf;
 use std::result::Result;
 use std::str;
 use std::sync::Arc;
 use structopt::StructOpt;
+use termcolor::{BufferWriter, Color, ColorChoice, ColorSpec, WriteColor};
 
 use temper::lint::*;
 use temper::prose::*;
@@ -55,7 +57,7 @@ struct Opt {
     input: Vec<String>,
 }
 
-fn go(opt: Opt) -> Result<Vec<Match>, Error> {
+fn go(opt: Opt) -> Result<(), Error> {
     let bind =
         |a: Result<Vec<Match>, Error>, b: Result<Vec<Match>, Error>| -> Result<Vec<Match>, Error> {
             match (a, b) {
@@ -71,24 +73,35 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
     let split = opt.split;
 
     // TODO: stdin
+    let mut ls = Vec::new();
     let mut fs = Vec::new();
-    for f in opt.lints.into_iter() {
+    for l in opt.lints.into_iter() {
+        for entry in glob(&l)? {
+            ls.push(entry?);
+        }
+    }
+    for f in opt.input.into_iter() {
         for entry in glob(&f)? {
             fs.push(entry?);
         }
     }
-    let lints: Lintset = linters(fs.iter().map(PathBuf::from).collect())?;
-    let files: Vec<PathBuf> = opt.input.into_iter().map(PathBuf::from).collect();
+    let lints: Lintset = linters(ls.iter().map(PathBuf::from).collect())?;
+    let files: Vec<PathBuf> = fs.iter().map(PathBuf::from).collect();
+
+    let bufwtr = Arc::new(BufferWriter::stdout(ColorChoice::Always));
 
     files
         .par_iter()
-        .map(|file| -> Result<Vec<Match>, Error> {
+        .map(|file| -> Result<(), Error> {
             let mut clens: Vec<u32> = vec![0];
             let mut last: u32 = 0;
 
             let f = File::open(file)?;
             let mmap = unsafe { Mmap::map(&f)? };
             let contents = str::from_utf8(&mmap)?;
+
+            let bufwtr = bufwtr.clone();
+            let mut buffer = bufwtr.buffer();
 
             match split {
                 Some(s) => {
@@ -114,7 +127,7 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
 
                     // This part is pretty unsafe with those square bracket accessors and all
                     // Make sure we're good here
-                    (0..cmp::max((bytes.len() - 1), 1))
+                    let res = (0..cmp::max((bytes.len() - 1), 1))
                         .into_par_iter()
                         .map(|s| {
                             let file = Prose {
@@ -135,7 +148,17 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
 
                             Ok(nm)
                         })
-                        .reduce(|| Ok(Vec::new()), &bind)
+                        .reduce(|| Ok(Vec::new()), &bind);
+
+                        match res {
+                            Ok(r) => for m in r {
+                                writeln!(&mut buffer, "{}:{}:{} {}:{} {}", m.file, m.line, m.column, m.lint, m.severity, m.msg)?;
+                            },
+                            Err(e) => { return Err(e); }
+                        };
+
+                        bufwtr.print(&buffer)?;
+                        Ok(())
                 }
                 None => {
                     let mut clens: Vec<u32> = contents
@@ -163,11 +186,16 @@ fn go(opt: Opt) -> Result<Vec<Match>, Error> {
                         }
                     });
 
-                    Ok(nm)
+                    for m in nm {
+                        writeln!(&mut buffer, "{}:{}:{} {}:{} {}", m.file, m.line, m.column, m.lint, m.severity, m.msg)?;
+                    }
+
+                    bufwtr.print(&buffer)?;
+
+                    Ok(())
                 }
             }
-        })
-        .reduce(|| Ok(Vec::new()), &bind)
+        }).reduce(|| Ok(()), |a, b| if (a.is_ok() && b.is_ok()) || a.is_err() { a } else { b })
 }
 
 fn main() {
@@ -180,22 +208,9 @@ fn main() {
     }
 
     match go(opt) {
-        Ok(x) => {
-            if !(mopt.verbose) {
-                let mut t = 0;
-                for m in &x {
-                    t += 1;
-                    println!(
-                        "{}:{}:{} {}:{} {}",
-                        m.file, m.line, m.column, m.lint, m.severity, m.msg
-                    );
-                }
-                println!();
-                println!("{} suggestions proposed.", t);
-            }
-        }
         Err(e) => {
             println!("{:#?}", e);
-        }
+        },
+        _ => {}
     }
 }

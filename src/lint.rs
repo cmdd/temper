@@ -8,11 +8,10 @@ use std::fs;
 use std::io::prelude::*;
 use ordermap::OrderMap;
 
-// Should this be user extensible?
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Severity {
-    Info,
+    Suggestion,
     Warning,
     Error,
 }

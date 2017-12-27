@@ -6,9 +6,9 @@ Considered features and things of note:
 - [ ] Reliability: CI, tests, rustfmt, clippy
 - [ ] verbose output
 - [ ] json output
-- [ ] glob? (this would deal with the recursion problem)
 - [ ] Change the philosophy of this tool altogether, make it more focused on prose? (usage of nlp, etc.)?
 - [ ] Should lints have a `[meta]` table to dump meta information? (temper would just store it internally as a `HashMap<String, String>` and spit it out on command)
+- [ ] option for a regex template (with a default for matching around a word)
 
 ## Prior art
 - proselint
