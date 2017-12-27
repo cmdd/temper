@@ -56,16 +56,51 @@ impl<'a> Prose<'a> {
         };
 
         let mut regexes: OrderSet<String> = OrderSet::new();
-        for lint in lints {
-            for (regex, _) in &lint.mapping {
-                regexes.insert(regex.clone());
+        let mut indivs: HashMap<usize, String> = HashMap::new();
+        for (i, lint) in lints.iter().enumerate() {
+            for (regex, v) in &lint.mapping {
+                match v {
+                    &Some(_) => {
+                        regexes.insert(regex.clone());
+                    },
+                    _ => {
+                        indivs.entry(i).or_insert_with(|| format!("(?:{})", regex.clone())).push_str(&format!("|(?:{})", regex));
+                    }
+                }
             }
         }
+
+        let res1 = indivs.into_par_iter().map(|(i, regex)| -> Result<Vec<Match>, Error> {
+            let regex = Regex::new(&regex)?;
+            let lint = &lints[i];
+            let msg = &lint.msg[..];
+            let name = &lint.name[..];
+            let mut ires = Vec::new();
+
+            for mat in regex.find_iter(self.text) {
+                let (l, c) = self.pos(mat.start(), bo);
+                let mut map = HashMap::new();
+                map.insert("match".to_string(), &self.text[mat.start()..mat.end()]);
+
+                ires.push(Match {
+                    file: String::from(self.name),
+                    line: l,
+                    column: c,
+                    lint: String::from(name),
+                    severity: lint.severity,
+                    msg: strfmt(msg, &map).unwrap_or_else(|_| String::from(msg)),
+                });
+            }
+
+
+            Ok(ires)
+        })
+        .reduce(|| Ok(Vec::new()), &bind);
 
         let set = RegexSet::new(&regexes)?;
         let matches: Vec<usize> = set.matches(self.text).into_iter().collect();
 
-        matches
+        let res2 = matches
             .par_iter()
             .map(|rix| -> Result<Vec<Match>, Error> {
                 let regex = regexes.get_index(*rix).unwrap();
@@ -112,6 +147,8 @@ impl<'a> Prose<'a> {
                 }
                 Ok(ires)
             })
-            .reduce(|| Ok(Vec::new()), bind)
+            .reduce(|| Ok(Vec::new()), &bind);
+
+        bind(res1, res2)
     }
 }

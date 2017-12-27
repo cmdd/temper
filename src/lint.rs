@@ -105,7 +105,7 @@ fn default_msg_mapping() -> String {
 }
 
 fn default_regex() -> String {
-    String::from("(?-u:\\b){regex}(?-u:\\b)")
+    String::from("\\b{regex}\\b")
 }
 
 fn default_tokens() -> Vec<String> {
