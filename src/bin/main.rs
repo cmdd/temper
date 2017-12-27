@@ -150,15 +150,21 @@ fn go(opt: Opt) -> Result<(), Error> {
                         })
                         .reduce(|| Ok(Vec::new()), &bind);
 
-                        match res {
-                            Ok(r) => for m in r {
-                                writeln!(&mut buffer, "{}:{}:{} {}:{} {}", m.file, m.line, m.column, m.lint, m.severity, m.msg)?;
-                            },
-                            Err(e) => { return Err(e); }
-                        };
+                    match res {
+                        Ok(r) => for m in r {
+                            writeln!(
+                                &mut buffer,
+                                "{}:{}:{} {}:{} {}",
+                                m.file, m.line, m.column, m.lint, m.severity, m.msg
+                            )?;
+                        },
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    };
 
-                        bufwtr.print(&buffer)?;
-                        Ok(())
+                    bufwtr.print(&buffer)?;
+                    Ok(())
                 }
                 None => {
                     let mut clens: Vec<u32> = contents
@@ -187,7 +193,11 @@ fn go(opt: Opt) -> Result<(), Error> {
                     });
 
                     for m in nm {
-                        writeln!(&mut buffer, "{}:{}:{} {}:{} {}", m.file, m.line, m.column, m.lint, m.severity, m.msg)?;
+                        writeln!(
+                            &mut buffer,
+                            "{}:{}:{} {}:{} {}",
+                            m.file, m.line, m.column, m.lint, m.severity, m.msg
+                        )?;
                     }
 
                     bufwtr.print(&buffer)?;
@@ -195,7 +205,17 @@ fn go(opt: Opt) -> Result<(), Error> {
                     Ok(())
                 }
             }
-        }).reduce(|| Ok(()), |a, b| if (a.is_ok() && b.is_ok()) || a.is_err() { a } else { b })
+        })
+        .reduce(
+            || Ok(()),
+            |a, b| {
+                if (a.is_ok() && b.is_ok()) || a.is_err() {
+                    a
+                } else {
+                    b
+                }
+            },
+        )
 }
 
 fn main() {
@@ -210,7 +230,7 @@ fn main() {
     match go(opt) {
         Err(e) => {
             println!("{:#?}", e);
-        },
+        }
         _ => {}
     }
 }
