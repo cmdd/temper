@@ -10,7 +10,7 @@ Considered features and things of note:
 - [ ] Change the philosophy of this tool altogether, make it more focused on prose? (usage of nlp, etc.)?
 - [ ] flag for disabling unicode for maximum speed (needed w/ regex template?)
 - [ ] Print whole path instead of file name
-- [ ] Nicer error handling (print glob errors, deal with regex errors for token field (which gets combined))
+- [ ] Nicer error handling (print glob errors, deal with regex errors for token field (which gets combined)
 
 ## Prior art
 - proselint
