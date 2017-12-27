@@ -2,10 +2,12 @@
 extern crate toml;
 
 use failure::Error;
-use std::path::PathBuf;
+use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::io::prelude::*;
+use std::path::PathBuf;
+use strfmt::strfmt;
 use ordermap::OrderMap;
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
@@ -41,6 +43,7 @@ struct TomlLintFields {
     #[serde(default)] severity: Severity,
     msg: String,
     #[serde(default = "default_msg_mapping")] msg_mapping: String,
+    #[serde(default = "default_regex")] regex: String,
     #[serde(default = "default_tokens")] tokens: Vec<String>,
 }
 
@@ -51,7 +54,6 @@ pub struct Lint {
     pub msg: String,
     pub msg_mapping: String,
     pub mapping: OrderMap<String, Option<String>>,
-    pub len: usize,
 }
 
 impl From<TomlLint> for Lint {
@@ -60,15 +62,20 @@ impl From<TomlLint> for Lint {
             toml.mapping.insert(token, None);
         }
 
-        let len = &toml.mapping.len();
+        let rtemp = toml.lint.regex;
+        let mut newmap = OrderMap::new();
+        let mut regex = HashMap::with_capacity(1);
+        for (item, v) in toml.mapping {
+            regex.insert("regex".to_owned(), item);
+            newmap.insert(strfmt(&rtemp, &regex).unwrap(), v);
+        }
 
         Lint {
             name: toml.lint.name,
             severity: toml.lint.severity,
             msg: toml.lint.msg,
             msg_mapping: toml.lint.msg_mapping,
-            mapping: toml.mapping,
-            len: *len,
+            mapping: newmap,
         }
     }
 }
@@ -95,6 +102,10 @@ fn default_mapping() -> OrderMap<String, Option<String>> {
 // TODO
 fn default_msg_mapping() -> String {
     String::from("Consider replacing {token} with {value}")
+}
+
+fn default_regex() -> String {
+    String::from("(?-u:\\b){regex}(?-u:\\b)")
 }
 
 fn default_tokens() -> Vec<String> {

@@ -80,7 +80,7 @@ impl<'a> Prose<'a> {
                             Some(&Some(ref v)) => {
                                 let (l, c) = self.pos(mat.start(), bo);
                                 let mut map = HashMap::new();
-                                map.insert("token".to_string(), &self.text[mat.start()..mat.end()]);
+                                map.insert("match".to_string(), &self.text[mat.start()..mat.end()]);
                                 map.insert("value".to_string(), v);
 
                                 ires.push(Match {
@@ -95,7 +95,7 @@ impl<'a> Prose<'a> {
                             Some(&None) => {
                                 let (l, c) = self.pos(mat.start(), bo);
                                 let mut map = HashMap::new();
-                                map.insert("token".to_string(), &self.text[mat.start()..mat.end()]);
+                                map.insert("match".to_string(), &self.text[mat.start()..mat.end()]);
 
                                 ires.push(Match {
                                     file: String::from(self.name),
