@@ -11,7 +11,7 @@ use strfmt::strfmt;
 use lint::*;
 use util::*;
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Match {
     pub file: String,
     pub line: usize,
@@ -74,7 +74,7 @@ impl<'a> Prose<'a> {
             .into_par_iter()
             .map(|s| {
                 let buf = &self.text[bytes[s]..bytes[s + 1]];
-                let mut nm = self.lint_buf(buf, &lints, &clens, bytes[s])?;
+                let mut nm = self.lint_buf(buf, lints, &clens, bytes[s])?;
                 nm.par_sort_unstable_by(|x, y| {
                     if x.line.cmp(&y.line) == cmp::Ordering::Equal {
                         x.column.cmp(&y.column)
@@ -185,8 +185,7 @@ fn bind_extend(
     a: Result<Vec<Match>, Error>,
     b: Result<Vec<Match>, Error>,
 ) -> Result<Vec<Match>, Error> {
-    bind(a, b, |mut a, b| {
-        a.extend(b);
-        a
+    bind(a, b, |a, b| {
+        a.iter().chain(b.iter()).cloned().collect::<Vec<_>>()
     })
 }

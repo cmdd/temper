@@ -68,7 +68,7 @@ fn go(opt: Opt) -> Result<usize, Error> {
             let f = File::open(file)?;
             let mmap = unsafe { Mmap::map(&f)? };
 
-            let bufwtr = bufwtr.clone();
+            let bufwtr = Arc::clone(&bufwtr);
             let mut buffer = bufwtr.buffer();
             let prose = Prose {
                 name: file.file_name().unwrap().to_str().unwrap(),
