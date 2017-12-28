@@ -24,3 +24,14 @@ pub fn walk<T: PartialEq>(ix: usize, v: &[T]) -> usize {
 
     max - 1
 }
+
+pub fn bind<A, B, F>(a: Result<A, B>, b: Result<A, B>, f: F) -> Result<A, B>
+where
+    F: Fn(A, A) -> A,
+{
+    match (a, b) {
+        (Ok(va), Ok(vb)) => Ok(f(va, vb)),
+        (Err(a), _) => Err(a),
+        (_, Err(b)) => Err(b),
+    }
+}

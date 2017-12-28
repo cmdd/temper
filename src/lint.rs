@@ -6,13 +6,14 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::io::prelude::*;
-use std::path::PathBuf;
+use std::path::Path;
 use strfmt::strfmt;
 use ordermap::OrderMap;
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Severity {
+    Info,
     Suggestion,
     Warning,
     Error,
@@ -83,7 +84,7 @@ impl From<TomlLint> for Lint {
 pub type Lintset = Vec<Lint>;
 
 // TODO: impl From<Vec<PathBuf>>
-pub fn linters(paths: Vec<PathBuf>) -> Result<Lintset, Error> {
+pub fn linters<T: AsRef<Path>>(paths: Vec<T>) -> Result<Lintset, Error> {
     let mut res: Lintset = Vec::new();
     for path in paths {
         let mut f = fs::File::open(path)?;
