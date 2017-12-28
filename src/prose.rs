@@ -1,9 +1,11 @@
 use failure::Error;
+use memchr::memchr;
 use ordermap::OrderSet;
 use rayon::prelude::*;
-use regex::{Regex, RegexSet};
+use regex::bytes::{Regex, RegexSet};
 use std::collections::HashMap;
 use std::cmp;
+use std::str;
 use strfmt::strfmt;
 
 use lint::*;
@@ -12,8 +14,8 @@ use util::*;
 #[derive(Debug, Serialize)]
 pub struct Match {
     pub file: String,
-    pub line: u32,
-    pub column: u32,
+    pub line: usize,
+    pub column: usize,
     pub lint: String,
     pub severity: Severity,
     pub msg: String,
@@ -23,49 +25,48 @@ pub struct Match {
 #[derive(Debug)]
 pub struct Prose<'a> {
     pub name: &'a str,
-    pub text: &'a str,
+    pub text: &'a [u8],
     pub split: usize,
+    pub eol: u8,
 }
 
 impl<'a> Prose<'a> {
     /// Given the index of a character, find its line and column.
-    pub fn pos(&self, offset: usize, clens: &[u32], bo: usize) -> (u32, u32) {
-        let offset = offset as u32 + bo as u32;
+    pub fn pos(&self, offset: usize, clens: &[usize], bo: usize) -> (usize, usize) {
+        let offset = offset + bo;
 
         match clens.binary_search(&offset) {
             Ok(linum) => {
                 let real = walk(linum, clens);
-                (real as u32 + 1, 1)
+                (real + 1, 1)
             }
-            Err(linum) => (linum as u32, offset - clens[linum - 1] + 1),
+            Err(linum) => (linum, offset - clens[linum - 1] + 1),
         }
     }
 
     pub fn lint(&self, lints: &[Lint]) -> Result<Vec<Match>, Error> {
-        let mut clens: Vec<u32> = vec![0];
-        let mut last: u32 = 0;
-
-        let nlines = self.text.lines().count();
+        let nlines = lines(self.text, self.eol);
         let lps = (nlines as f32 / self.split as f32).ceil() as usize;
 
-        let mut bytes: Vec<usize> = vec![0];
-        let mut curby = 0;
+        let mut clens: Vec<usize> = Vec::with_capacity(nlines as usize + 2);
+        clens.push(0);
+        let mut bytes: Vec<usize> = Vec::with_capacity(self.split + 2);
+        bytes.push(0);
 
-        for (i, line) in self.text.split('\n').enumerate() {
-            if i % lps == 0 && i != 0 {
-                bytes.push(curby);
+        let mut cpos = 0;
+        let mut lines = 0;
+
+        while let Some(i) = memchr(self.eol, &self.text[cpos..]) {
+            if lines % lps == 0 && lines != 0 {
+                bytes.push(cpos);
             }
-            let llen = line.len() as u32;
-            let blen = line.as_bytes().len();
-            // We add one to each of these to account for the newline, which is one byte
-            clens.push(last + llen + 1);
-            last += llen + 1;
-            curby += blen + 1;
+
+            clens.push(cpos + i + 1);
+            cpos = cpos + i + 1;
+            lines += 1;
         }
 
-        if self.split > 1 {
-            bytes.push(curby - 1);
-        }
+        bytes.push(cpos + self.text[cpos..].len());
 
         // This part is pretty unsafe with those square bracket accessors and all
         // Make sure we're good here
@@ -89,9 +90,9 @@ impl<'a> Prose<'a> {
 
     fn lint_buf(
         &self,
-        buf: &str,
+        buf: &[u8],
         lints: &[Lint],
-        clens: &[u32],
+        clens: &[usize],
         bo: usize,
     ) -> Result<Vec<Match>, Error> {
         let mut regexes: OrderSet<String> = OrderSet::new();
@@ -124,7 +125,7 @@ impl<'a> Prose<'a> {
                 for mat in regex.find_iter(buf) {
                     let (l, c) = self.pos(mat.start(), clens, bo);
                     let mut map = HashMap::new();
-                    map.insert("match".to_string(), &buf[mat.start()..mat.end()]);
+                    map.insert("match".to_string(), str::from_utf8(&buf[mat.start()..mat.end()])?);
 
                     ires.push(Match {
                         file: String::from(self.name),
@@ -157,7 +158,7 @@ impl<'a> Prose<'a> {
                         if let Some(&Some(ref v)) = lint.mapping.get(regex) {
                             let (l, c) = self.pos(mat.start(), clens, bo);
                             let mut map = HashMap::new();
-                            map.insert("match".to_string(), &buf[mat.start()..mat.end()]);
+                            map.insert("match".to_string(), str::from_utf8(&buf[mat.start()..mat.end()])?);
                             map.insert("value".to_string(), v);
 
                             ires.push(Match {

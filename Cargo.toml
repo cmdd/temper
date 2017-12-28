@@ -13,10 +13,12 @@ name = "temper"
 path = "src/bin/main.rs"
 
 [dependencies]
+bytecount = "0.2"
 clap = "2"
 failure = "0.1"
 glob = "0.2"
 lazy_static = "1.0"
+memchr = "2.0"
 memmap = "0.6"
 serde = "1.0"
 serde_derive = "1.0"
@@ -32,7 +34,7 @@ version = "0.3"
 features = ["serde-1"]
 
 [features]
-simd-accel = ["regex/simd-accel"]
+accel = ["regex/simd-accel", "bytecount/avx-accel", "bytecount/simd-accel"]
 
 [profile.release]
 lto = true

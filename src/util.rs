@@ -1,17 +1,10 @@
 //! Module `util.rs` provides internal, generic utility functions for the crate.
 
+use bytecount;
+
 /// Given a Vec in sorted ascending order and a curren index, function `walk`
 /// start from the current index and move upwards, returning the largest index
 /// with the same value.
-///
-/// # Examples
-///
-/// ```
-/// let v = vec![0, 1, 1, 2, 3, 5, 8, 8]
-///
-/// assert_eq!(walk(1, &v), 2);
-/// assert_eq!(walk(7, &v), 7);
-/// ```
 pub fn walk<T: PartialEq>(ix: usize, v: &[T]) -> usize {
     let val = &v[ix];
     let max = v.len();
@@ -34,4 +27,9 @@ where
         (Err(a), _) => Err(a),
         (_, Err(b)) => Err(b),
     }
+}
+
+#[inline(never)]
+pub fn lines(buf: &[u8], eol: u8) -> u64 {
+    bytecount::count(buf, eol) as u64
 }

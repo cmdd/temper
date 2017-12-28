@@ -25,7 +25,6 @@ use std::cmp;
 use std::fs::File;
 use std::path::PathBuf;
 use std::result::Result;
-use std::str;
 use std::sync::Arc;
 use termcolor::{BufferWriter, ColorChoice};
 
@@ -68,14 +67,14 @@ fn go(opt: Opt) -> Result<usize, Error> {
         .map(|file| -> Result<usize, Error> {
             let f = File::open(file)?;
             let mmap = unsafe { Mmap::map(&f)? };
-            let contents = str::from_utf8(&mmap)?;
 
             let bufwtr = bufwtr.clone();
             let mut buffer = bufwtr.buffer();
             let prose = Prose {
                 name: file.file_name().unwrap().to_str().unwrap(),
-                text: contents,
+                text: &mmap,
                 split: split,
+                eol: b'\n',
             };
 
             let matches = prose.lint(&lints)?;
