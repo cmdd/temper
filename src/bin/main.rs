@@ -25,6 +25,7 @@ use std::cmp;
 use std::fs::File;
 use std::path::PathBuf;
 use std::result::Result;
+use std::str;
 use std::sync::Arc;
 use termcolor::{BufferWriter, ColorChoice};
 
@@ -32,6 +33,10 @@ use opt::*;
 use printer::*;
 use temper::lint::*;
 use temper::prose::*;
+
+fn get_line(clens: &[usize], linum: usize) -> (usize, usize) {
+    (clens[linum - 1], clens[linum])
+}
 
 fn go(opt: Opt) -> Result<usize, Error> {
     // TODO: stdin
@@ -67,6 +72,7 @@ fn go(opt: Opt) -> Result<usize, Error> {
         .map(|file| -> Result<usize, Error> {
             let f = File::open(file)?;
             let mmap = unsafe { Mmap::map(&f)? };
+            let mmap = str::from_utf8(&mmap)?;
 
             let bufwtr = Arc::clone(&bufwtr);
             let mut buffer = bufwtr.buffer();
@@ -76,21 +82,27 @@ fn go(opt: Opt) -> Result<usize, Error> {
                 split: split,
                 eol: b'\n',
             };
-
+            let line_lengths = prose.line_lengths();
             let matches = prose.lint(&lints)?;
-
             let mut match_count = 0;
+
             {
                 // TODO: Actually use terminal's width
                 let mut printer = Printer {
                     wtr: &mut buffer,
                     style: style,
-                    width: 80,
                     colors: Colors::default(),
                 };
 
                 for m in matches {
-                    printer.write_match(&m)?;
+                    let (ls, le) = get_line(&line_lengths, m.line);
+                    let line = &mmap[ls..le].trim_right();
+                    let le = ls + line.len();
+                    let o = Offset {
+                        start: m.offset.start - ls,
+                        end: m.offset.end - ls,
+                    };
+                    printer.write_match(&m, &line, o)?;
                     match_count += 1;
                 }
             }

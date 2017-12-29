@@ -2,14 +2,19 @@ use failure::Error;
 use memchr::memchr;
 use ordermap::OrderSet;
 use rayon::prelude::*;
-use regex::bytes::{Regex, RegexSet};
+use regex::{Regex, RegexSet};
 use std::collections::HashMap;
 use std::cmp;
-use std::str;
 use strfmt::strfmt;
 
 use lint::*;
 use util::*;
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct Offset {
+    pub start: usize,
+    pub end: usize,
+}
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Match {
@@ -19,13 +24,13 @@ pub struct Match {
     pub lint: String,
     pub severity: Severity,
     pub msg: String,
-    pub offset: usize,
+    pub offset: Offset,
 }
 
 #[derive(Debug)]
 pub struct Prose<'a> {
     pub name: &'a str,
-    pub text: &'a [u8],
+    pub text: &'a str,
     pub split: usize,
     pub eol: u8,
 }
@@ -36,45 +41,72 @@ impl<'a> Prose<'a> {
         let offset = offset + bo;
 
         match clens.binary_search(&offset) {
-            Ok(linum) => {
-                let real = walk(linum, clens);
-                (real + 1, 1)
-            }
+            Ok(linum) => (linum + 1, 1),
             Err(linum) => (linum, offset - clens[linum - 1] + 1),
         }
     }
 
-    pub fn lint(&self, lints: &[Lint]) -> Result<Vec<Match>, Error> {
-        let nlines = lines(self.text, self.eol);
-        let lps = (nlines as f32 / self.split as f32).ceil() as usize;
+    // Contains the lengths of each line (and therefore the starting index of each line)
+    // item 0 will always be 0, the starting index of line 1
+    // item 1 will be the starting index of line 2 (which is also the length of line 1)
+    // item 2 will be the starting index of line 3 (which is also the length of lines 1 + 2)
+    // ...
+    // the last item will be equal to the length of the whole string
+    pub fn line_lengths(&self) -> Vec<usize> {
+        let nlines = lines(self.text.as_bytes(), self.eol);
+        let mut lengths: Vec<usize> = Vec::with_capacity(nlines as usize + 2);
 
-        let mut clens: Vec<usize> = Vec::with_capacity(nlines as usize + 2);
-        clens.push(0);
+        lengths.push(0);
+
+        let mut current_byte = 0;
+
+        while let Some(pos) = memchr(self.eol, &self.text[current_byte..].as_bytes()) {
+            lengths.push(current_byte + pos + 1);
+            current_byte = current_byte + pos + 1;
+        }
+
+        let last_length = current_byte + self.text[current_byte..].len();
+        if self.text[current_byte..].len() > 0 {
+            lengths.push(last_length);
+        }
+
+        lengths
+    }
+
+    pub fn lint(&self, lints: &[Lint]) -> Result<Vec<Match>, Error> {
+        let line_lengths = self.line_lengths();
+        let nlines = line_lengths.len() - 1;
+        let split = cmp::min(nlines, self.split);
+        let lps = (nlines as f32 / split as f32).ceil() as usize;
+
         let mut bytes: Vec<usize> = Vec::with_capacity(self.split + 2);
         bytes.push(0);
 
-        let mut cpos = 0;
-        let mut lines = 0;
-
-        while let Some(i) = memchr(self.eol, &self.text[cpos..]) {
-            if lines % lps == 0 && lines != 0 {
-                bytes.push(cpos);
+        for line in 1..nlines {
+            if line % lps == 0 {
+                bytes.push(line_lengths[line]);
             }
-
-            clens.push(cpos + i + 1);
-            cpos = cpos + i + 1;
-            lines += 1;
         }
 
-        bytes.push(cpos + self.text[cpos..].len());
+        // Add 1 to get the whole file to be read; ranges are exclusive at
+        // the right end
+        bytes.push(*line_lengths.last().unwrap() + 1);
 
         // This part is pretty unsafe with those square bracket accessors and all
         // Make sure we're good here
         (0..cmp::max((bytes.len() - 1), 1))
             .into_par_iter()
             .map(|s| {
-                let buf = &self.text[bytes[s]..bytes[s + 1]];
-                let mut nm = self.lint_buf(buf, lints, &clens, bytes[s])?;
+                let buf = if bytes[s] < self.text.len() {
+                    if bytes[s + 1] < self.text.len() {
+                        &self.text[bytes[s]..bytes[s + 1]]
+                    } else {
+                        &self.text[bytes[s]..]
+                    }
+                } else {
+                    ""
+                };
+                let mut nm = self.lint_buf(buf, lints, &line_lengths, bytes[s])?;
                 nm.par_sort_unstable_by(|x, y| {
                     if x.line.cmp(&y.line) == cmp::Ordering::Equal {
                         x.column.cmp(&y.column)
@@ -90,7 +122,7 @@ impl<'a> Prose<'a> {
 
     fn lint_buf(
         &self,
-        buf: &[u8],
+        buf: &str,
         lints: &[Lint],
         clens: &[usize],
         bo: usize,
@@ -124,8 +156,12 @@ impl<'a> Prose<'a> {
 
                 for mat in regex.find_iter(buf) {
                     let (l, c) = self.pos(mat.start(), clens, bo);
+                    let bo = Offset {
+                        start: bo + mat.start(),
+                        end: bo + mat.end(),
+                    };
                     let mut map = HashMap::new();
-                    map.insert("match".to_string(), str::from_utf8(&buf[mat.start()..mat.end()])?);
+                    map.insert("match".to_string(), &buf[mat.start()..mat.end()]);
 
                     ires.push(Match {
                         file: String::from(self.name),
@@ -134,7 +170,7 @@ impl<'a> Prose<'a> {
                         lint: String::from(name),
                         severity: lint.severity,
                         msg: strfmt(msg, &map).unwrap_or_else(|_| String::from(msg)),
-                        offset: mat.start(),
+                        offset: bo,
                     });
                 }
 
@@ -157,8 +193,12 @@ impl<'a> Prose<'a> {
                         let name = &lint.name[..];
                         if let Some(&Some(ref v)) = lint.mapping.get(regex) {
                             let (l, c) = self.pos(mat.start(), clens, bo);
+                            let bo = Offset {
+                                start: bo + mat.start(),
+                                end: bo + mat.end(),
+                            };
                             let mut map = HashMap::new();
-                            map.insert("match".to_string(), str::from_utf8(&buf[mat.start()..mat.end()])?);
+                            map.insert("match".to_string(), &buf[mat.start()..mat.end()]);
                             map.insert("value".to_string(), v);
 
                             ires.push(Match {
@@ -168,7 +208,7 @@ impl<'a> Prose<'a> {
                                 lint: String::from(name),
                                 severity: lint.severity,
                                 msg: strfmt(msg_mapping, &map).unwrap_or_else(|_| v.clone()),
-                                offset: mat.start(),
+                                offset: bo,
                             });
                         }
                     }

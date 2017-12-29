@@ -2,22 +2,6 @@
 
 use bytecount;
 
-/// Given a Vec in sorted ascending order and a curren index, function `walk`
-/// start from the current index and move upwards, returning the largest index
-/// with the same value.
-pub fn walk<T: PartialEq>(ix: usize, v: &[T]) -> usize {
-    let val = &v[ix];
-    let max = v.len();
-
-    for (i, vn) in v.iter().enumerate().skip(ix) {
-        if vn != val {
-            return i - 1;
-        }
-    }
-
-    max - 1
-}
-
 pub fn bind<A, B, F>(a: Result<A, B>, b: Result<A, B>, f: F) -> Result<A, B>
 where
     F: Fn(A, A) -> A,
@@ -30,6 +14,6 @@ where
 }
 
 #[inline(never)]
-pub fn lines(buf: &[u8], eol: u8) -> u64 {
-    bytecount::count(buf, eol) as u64
+pub fn lines(buf: &[u8], eol: u8) -> usize {
+    bytecount::count(buf, eol) + 1
 }

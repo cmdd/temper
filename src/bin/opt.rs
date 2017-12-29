@@ -18,7 +18,7 @@ impl Opt {
         let ms = cli().get_matches_safe()?;
 
         let lints = values_t!(ms, "lint", String)?;
-        let style = value_t!(ms, "style", Style).unwrap_or(Style::Line);
+        let style = value_t!(ms, "output", Style).unwrap_or(Style::Line);
         let split = value_t!(ms, "split", usize).unwrap_or(1);
         let files = values_t!(ms, "file", String)?;
 
