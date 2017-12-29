@@ -82,10 +82,10 @@ impl<'a> Prose<'a> {
         let mut bytes: Vec<usize> = Vec::with_capacity(self.split + 2);
         bytes.push(0);
 
-        for line in 1..nlines {
-            if line % lps == 0 {
-                bytes.push(line_lengths[line]);
-            }
+        let mut cline = lps;
+        while cline < nlines {
+            bytes.push(line_lengths[cline]);
+            cline += lps;
         }
 
         // Add 1 to get the whole file to be read; ranges are exclusive at
