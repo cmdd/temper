@@ -34,6 +34,8 @@ use printer::*;
 use temper::lint::*;
 use temper::prose::*;
 
+const EOL: u8 = b'\n';
+
 fn get_line(clens: &[usize], linum: usize) -> (usize, usize) {
     (clens[linum - 1], clens[linum])
 }
@@ -45,6 +47,7 @@ fn go(opt: Opt) -> Result<usize, Error> {
 
     let split = cmp::max(opt.split, 1);
     let style = opt.style;
+    let unicode = opt.unicode;
 
     // A note on the unquoted glob:
     // When the os expands an unquoted glob, it'll turn into multiple values
@@ -80,7 +83,8 @@ fn go(opt: Opt) -> Result<usize, Error> {
                 name: file.file_name().unwrap().to_str().unwrap(),
                 text: &mmap,
                 split: split,
-                eol: b'\n',
+                unicode: unicode,
+                eol: EOL,
             };
             let line_lengths = prose.line_lengths();
             let matches = prose.lint(&lints)?;
@@ -92,12 +96,12 @@ fn go(opt: Opt) -> Result<usize, Error> {
                     wtr: &mut buffer,
                     style: style,
                     colors: Colors::default(),
+                    eol: EOL,
                 };
 
                 for m in matches {
                     let (ls, le) = get_line(&line_lengths, m.line);
                     let line = &mmap[ls..le].trim_right();
-                    let le = ls + line.len();
                     let o = Offset {
                         start: m.offset.start - ls,
                         end: m.offset.end - ls,

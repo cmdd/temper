@@ -9,6 +9,7 @@ pub struct Opt {
     pub style: Style,
     // Note: # of cores / # of files is a good choice
     pub split: usize,
+    pub unicode: bool,
     // TODO: If 0 args, read from stdin
     pub files: Vec<String>,
 }
@@ -21,11 +22,13 @@ impl Opt {
         let style = value_t!(ms, "output", Style).unwrap_or(Style::Line);
         let split = value_t!(ms, "split", usize).unwrap_or(1);
         let files = values_t!(ms, "file", String)?;
+        let unicode = !ms.is_present("no-unicode");
 
         Ok(Opt {
             lints: lints,
             style: style,
             split: split,
+            unicode: unicode,
             files: files,
         })
     }

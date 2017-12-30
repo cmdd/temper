@@ -2,7 +2,7 @@ use failure::Error;
 use memchr::memchr;
 use ordermap::OrderSet;
 use rayon::prelude::*;
-use regex::{Regex, RegexSet};
+use regex::{RegexBuilder, RegexSetBuilder};
 use std::collections::HashMap;
 use std::cmp;
 use strfmt::strfmt;
@@ -32,6 +32,7 @@ pub struct Prose<'a> {
     pub name: &'a str,
     pub text: &'a str,
     pub split: usize,
+    pub unicode: bool,
     pub eol: u8,
 }
 
@@ -40,10 +41,9 @@ impl<'a> Prose<'a> {
     pub fn pos(&self, offset: usize, clens: &[usize], bo: usize) -> (usize, usize) {
         let offset = offset + bo;
 
-        match clens.binary_search(&offset) {
-            Ok(linum) => (linum + 1, 1),
-            Err(linum) => (linum, offset - clens[linum - 1] + 1),
-        }
+        let linum = lines(&self.text[..offset + 1].as_bytes(), self.eol);
+
+        (linum, offset - clens[linum - 1] + 1)
     }
 
     // Contains the lengths of each line (and therefore the starting index of each line)
@@ -83,7 +83,7 @@ impl<'a> Prose<'a> {
         bytes.push(0);
 
         for line in (1..split).map(|i| i * lps) {
-            if line % lps == 0 {
+            if line < nlines {
                 bytes.push(line_lengths[line]);
             }
         }
@@ -92,8 +92,6 @@ impl<'a> Prose<'a> {
         // the right end
         bytes.push(*line_lengths.last().unwrap() + 1);
 
-        // This part is pretty unsafe with those square bracket accessors and all
-        // Make sure we're good here
         (0..cmp::max((bytes.len() - 1), 1))
             .into_par_iter()
             .map(|s| {
@@ -128,70 +126,82 @@ impl<'a> Prose<'a> {
         bo: usize,
     ) -> Result<Vec<Match>, Error> {
         let mut regexes: OrderSet<String> = OrderSet::new();
-        let mut indivs: HashMap<usize, String> = HashMap::new();
-        for (i, lint) in lints.iter().enumerate() {
-            for (regex, v) in &lint.mapping {
-                match *v {
-                    Some(_) => {
-                        regexes.insert(regex.clone());
-                    }
-                    _ => {
-                        indivs
-                            .entry(i)
-                            .or_insert_with(|| format!("(?:{})", regex.clone()))
-                            .push_str(&format!("|(?:{})", regex));
-                    }
-                }
-            }
-        }
+        let _ = lints.iter().map(|x| regexes.extend(x.mapping.iter().filter(|&(_, v)| v.is_some()).map(|x| x.0.clone())));
 
-        let res1 = indivs
+        let res1 = lints
             .into_par_iter()
-            .map(|(i, regex)| -> Result<Vec<Match>, Error> {
-                let regex = Regex::new(&regex)?;
-                let lint = &lints[i];
-                let msg = &lint.msg[..];
-                let name = &lint.name[..];
-                let mut ires = Vec::new();
-
-                for mat in regex.find_iter(buf) {
-                    let (l, c) = self.pos(mat.start(), clens, bo);
-                    let bo = Offset {
-                        start: bo + mat.start(),
-                        end: bo + mat.end(),
-                    };
-                    let mut map = HashMap::new();
-                    map.insert("match".to_string(), &buf[mat.start()..mat.end()]);
-
-                    ires.push(Match {
-                        file: String::from(self.name),
-                        line: l,
-                        column: c,
-                        lint: String::from(name),
-                        severity: lint.severity,
-                        msg: strfmt(msg, &map).unwrap_or_else(|_| String::from(msg)),
-                        offset: bo,
-                    });
+            .map(|lint| -> Result<Vec<Match>, Error> {
+                let rs: Vec<&str> = lint.mapping.iter().filter(|x| x.1.is_none()).map(|x| &x.0[..]).collect();
+                if rs.len() == 0 {
+                    return Ok(Vec::new());
                 }
 
-                Ok(ires)
+                let len = rs.len();
+                let rps = self.regexes_per_partition(len);
+                let partitions = (len as f64 / rps as f64).ceil() as usize;
+                (0..partitions)
+                    .into_par_iter()
+                    .map(|i| i * rps)
+                    .map(|s| -> Result<Vec<Match>, Error> {
+                        let mut ires = Vec::new();
+                        let len = rs.len();
+                        let slice = if s + rps >= len {
+                            &rs[s..]
+                        } else {
+                            &rs[s..s + rps]
+                        };
+
+                        let start = format!("(?:{})", rs[0].clone());
+
+                        let regex = slice.iter().fold(start, |acc, s| acc + "|(?:" + s + ")");
+
+                        let regex = RegexBuilder::new(&regex).unicode(self.unicode).build()?;
+                        if regex.is_match(buf) {
+                            let msg = &lint.msg[..];
+                            let name = &lint.name[..];
+
+                            for mat in regex.find_iter(buf) {
+                                let (l, c) = self.pos(mat.start(), clens, bo);
+                                let bo = Offset {
+                                    start: bo + mat.start(),
+                                    end: bo + mat.end(),
+                                };
+                                let mut map = HashMap::new();
+                                map.insert("match".to_string(), &buf[mat.start()..mat.end()]);
+
+                                ires.push(Match {
+                                    file: String::from(self.name),
+                                    line: l,
+                                    column: c,
+                                    lint: String::from(name),
+                                    severity: lint.severity,
+                                    msg: strfmt(msg, &map).unwrap_or_else(|_| String::from(msg)),
+                                    offset: bo,
+                                });
+                            }
+                        }
+                        Ok(ires)
+                    })
+                    .reduce(|| Ok(Vec::new()), bind_extend)
             })
             .reduce(|| Ok(Vec::new()), bind_extend);
 
-        let set = RegexSet::new(&regexes)?;
+        let set = RegexSetBuilder::new(&regexes)
+            .unicode(self.unicode)
+            .build()?;
         let matches: Vec<usize> = set.matches(buf).into_iter().collect();
 
         let res2 = matches
             .par_iter()
             .map(|rix| -> Result<Vec<Match>, Error> {
                 let regex = regexes.get_index(*rix).unwrap();
-                let r = Regex::new(regex)?;
+                let r = RegexBuilder::new(regex).unicode(self.unicode).build()?;
                 let mut ires = Vec::new();
                 for mat in r.find_iter(buf) {
                     for lint in lints {
-                        let msg_mapping = &lint.msg_mapping[..];
-                        let name = &lint.name[..];
                         if let Some(&Some(ref v)) = lint.mapping.get(regex) {
+                            let msg_mapping = &lint.msg_mapping[..];
+                            let name = &lint.name[..];
                             let (l, c) = self.pos(mat.start(), clens, bo);
                             let bo = Offset {
                                 start: bo + mat.start(),
@@ -219,6 +229,12 @@ impl<'a> Prose<'a> {
 
         bind_extend(res1, res2)
     }
+
+    fn regexes_per_partition(&self, regexes: usize) -> usize {
+        let regexes = regexes as f64;
+        ((15000.0 / regexes) + (regexes / 10.0)).ceil() as usize
+    }
+
 }
 
 fn bind_extend(

@@ -18,6 +18,7 @@ pub struct Printer<W> {
     pub wtr: W,
     pub style: Style,
     pub colors: Colors,
+    pub eol: u8,
 }
 
 // TODO: Colors!
@@ -32,11 +33,12 @@ impl<W: WriteColor> Printer<W> {
 
     fn write_match_line(&mut self, m: &Match) -> Result<(), Error> {
         let s = format!(
-            "{}:{}:{} {}:{} {}\n",
+            "{}:{}:{} {}:{} {}",
             m.file, m.line, m.column, m.lint, m.severity, m.msg
         );
 
-        self.write(s.as_bytes())
+        self.write(s.as_bytes())?;
+        self.write_eol(1)
     }
 
     // TODO: What if we're printing multiple lines?
@@ -46,11 +48,11 @@ impl<W: WriteColor> Printer<W> {
         context: &str,
         moffset: Offset,
     ) -> Result<(), Error> {
-        let head = format!("{}: {}\n", m.severity, m.lint);
+        let head = format!("{}: {}", m.severity, m.lint);
 
         let ds = digits(m.line);
         let file = format!(
-            "{:>width$} {}:{}:{}\n",
+            "{:>width$} {}:{}:{}",
             "-->",
             m.file,
             m.line,
@@ -58,23 +60,35 @@ impl<W: WriteColor> Printer<W> {
             width = ds + 3
         );
         let linum = format!("{} | ", m.line,);
-        let msg = format!("{:>width$} {}\n\n", "=", m.msg, width = ds + 2);
+        let msg = format!("{:>width$} {}", "=", m.msg, width = ds + 2);
 
         self.write(head.as_bytes())?;
+        self.write_eol(1)?;
         self.write(file.as_bytes())?;
+        self.write_eol(1)?;
 
         self.write(linum.as_bytes())?;
         self.write(&context[..moffset.start].as_bytes())?;
         if moffset.end >= context.len() {
             self.write(&context[moffset.start..].as_bytes())?;
-            self.write(b"\n")?;
-            self.write(msg.as_bytes())
+            self.write_eol(1)?;
+            self.write(msg.as_bytes())?;
+            self.write_eol(2)
         } else {
             self.write(&context[moffset.start..moffset.end].as_bytes())?;
             self.write(&context[moffset.end..].as_bytes())?;
-            self.write(b"\n")?;
-            self.write(msg.as_bytes())
+            self.write_eol(1)?;
+            self.write(msg.as_bytes())?;
+            self.write_eol(2)
         }
+    }
+
+    fn write_eol(&mut self, count: usize) -> Result<(), Error> {
+        let eol = self.eol;
+        for _ in 0..count {
+            self.write(&[eol])?;
+        }
+        Ok(())
     }
 
     fn write_colored<F>(&mut self, buf: &[u8], get_color: F) -> Result<(), Error>

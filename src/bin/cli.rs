@@ -42,6 +42,7 @@ pub fn cli() -> App<'static, 'static> {
                 .possible_values(&["json", "line", "caret"]),
         )
         .arg(flag("split").short("s").takes_value(true))
+        .arg(flag("no-unicode"))
 }
 
 struct Doc {
@@ -113,11 +114,17 @@ lazy_static! {
              will require each regular expression to be recompiled for that \
              file, which has a performance cost. The best value for this setting \
              will be dependent on your files and your computer (specifically \
-             the number of logical cores on your CPU), so some trial and error
+             the number of logical cores on your CPU), so some trial and error \
              may be necessary to obtain the best possible performance. In \
              addition, this option partitions the file by line. If a match \
              happens to lie on two lines that will be separated after the \
              partition, it will no longer match, yielding incorrect results.");
+
+        doc!(us, "no-unicode",
+            "Disable unicode support for wildcard characters.",
+            "Disable unicode support for wildcard characters like '\\b' and '\\w'. \
+             Can improve performance at the cost of correctness (especially \
+             for non-English texts).");
 
         us
     };
