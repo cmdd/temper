@@ -10,7 +10,7 @@ use std::path::Path;
 use strfmt::strfmt;
 use ordermap::OrderMap;
 
-#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Severity {
     Info,
@@ -42,13 +42,13 @@ struct TomlLint {
 struct TomlLintFields {
     name: String,
     #[serde(default)] severity: Severity,
-    msg: String,
+    #[serde(default = "default_msg")] msg: String,
     #[serde(default = "default_msg_mapping")] msg_mapping: String,
     #[serde(default = "default_regex")] regex: String,
     #[serde(default = "default_tokens")] tokens: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Lint {
     pub name: String,
     pub severity: Severity,
@@ -100,9 +100,12 @@ fn default_mapping() -> OrderMap<String, Option<String>> {
     OrderMap::new()
 }
 
-// TODO
+fn default_msg() -> String {
+    String::from("{match} is a usage error")
+}
+
 fn default_msg_mapping() -> String {
-    String::from("Consider replacing {token} with {value}")
+    String::from("Consider replacing {match} with {value}")
 }
 
 fn default_regex() -> String {
@@ -111,4 +114,88 @@ fn default_regex() -> String {
 
 fn default_tokens() -> Vec<String> {
     vec![]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const COMPLETE: &'static str = "\
+[lint]
+name = 'temper.test.complete'
+severity = 'error'
+msg = 'This is a complete toml lintset. Match: {match}'
+msg_mapping = 'This is a complete toml lintset. {match}: {value}'
+regex = 'f {regex} f'
+
+tokens = ['a', '(?-u:b)', 'c']
+
+[mapping]
+breakfast = 'yes'
+lunch = 'yes'
+dinner = 'true'
+dessert = 'false'
+";
+
+    const DEFAULTS: &'static str = "\
+[lint]
+name = 'temper.test.defaults'
+
+tokens = ['k']
+
+[mapping]
+hello = 'world'
+";
+
+    const UNNAMED: &'static str = "
+[lint]
+msg = 'This lint has no name, and an error should be returned.'
+severity = 'error'
+
+tokens = ['whatever']
+";
+
+    #[test]
+    fn lint_parse_complete() {
+        let mut correct_mapping = OrderMap::new();
+        correct_mapping.insert(String::from("f a f"), None);
+        correct_mapping.insert(String::from("f (?-u:b) f"), None);
+        correct_mapping.insert(String::from("f c f"), None);
+        correct_mapping.insert(String::from("f breakfast f"), Some(String::from("yes")));
+        correct_mapping.insert(String::from("f lunch f"), Some(String::from("yes")));
+        correct_mapping.insert(String::from("f dinner f"), Some(String::from("true")));
+        correct_mapping.insert(String::from("f dessert f"), Some(String::from("false")));
+
+        let correct = Lint {
+            name: String::from("temper.test.complete"),
+            severity: Severity::Error,
+            msg: String::from("This is a complete toml lintset. Match: {match}"),
+            msg_mapping: String::from("This is a complete toml lintset. {match}: {value}"),
+            mapping: correct_mapping,
+        };
+
+        assert_eq!(correct, <Lint as From<TomlLint>>::from(toml::from_str(COMPLETE).unwrap()));
+    }
+
+    #[test]
+    fn lint_parse_defaults() {
+        let mut correct_mapping = OrderMap::new();
+        correct_mapping.insert(String::from(r"\bk\b"), None);
+        correct_mapping.insert(String::from(r"\bhello\b"), Some(String::from("world")));
+
+        let correct = Lint {
+            name: String::from("temper.test.defaults"),
+            severity: Severity::Warning,
+            msg: default_msg(),
+            msg_mapping: default_msg_mapping(),
+            mapping: correct_mapping,
+        };
+
+        assert_eq!(correct, <Lint as From<TomlLint>>::from(toml::from_str(DEFAULTS).unwrap()));
+    }
+
+    #[test]
+    fn lint_parse_unnamed() {
+        assert!(toml::from_str::<TomlLint>(UNNAMED).is_err());
+    }
 }

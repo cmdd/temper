@@ -1,4 +1,5 @@
 use failure::Error;
+use std::path::Path;
 use std::str;
 use termcolor::{ColorSpec, WriteColor};
 
@@ -81,6 +82,10 @@ impl<W: WriteColor> Printer<W> {
             self.write(msg.as_bytes())?;
             self.write_eol(2)
         }
+    }
+
+    fn write_path<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+        self.write(path.as_ref().to_string_lossy().as_bytes())
     }
 
     fn write_eol(&mut self, count: usize) -> Result<(), Error> {
