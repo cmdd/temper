@@ -5,7 +5,6 @@ Considered features and things of note:
 - [ ] proper lintset
 - [ ] https://www.reddit.com/r/rust/comments/32rjdd/reading_from_a_file_or_stdin_based_on_command/
 - [ ] Reliability: CI, tests, rustfmt, clippy
-- [ ] Forgo `RegexSet` entirely and just compile one giant regex per lintset
 - [ ] json output
 - [ ] Change the philosophy of this tool altogether, make it more focused on prose? (usage of nlp, etc.)?
 - [ ] Print whole path instead of file name

@@ -7,7 +7,7 @@ arg_enum! {
     pub enum Style {
         Json,
         Line,
-        Caret,
+        Verbose,
     }
 }
 
@@ -39,7 +39,7 @@ pub fn cli() -> App<'static, 'static> {
             flag("output")
                 .short("o")
                 .takes_value(true)
-                .possible_values(&["json", "line", "caret"]),
+                .possible_values(&["json", "line", "verbose"]),
         )
         .arg(flag("split").short("s").takes_value(true))
         .arg(flag("no-unicode"))
@@ -95,10 +95,12 @@ lazy_static! {
              with each suggestion taking up one line (given a sufficiently \
              wide terminal window). In this output mode, the line and column \
              number of the match is given, but the text itself is not printed. \
-             \n\n`caret` will output the results of the lint more verbosely, \
+             The lintset that matched, its corresponding error message, and \
+             the severity of the error is also provided. \
+             \n\n`verbose` will output the results of the lint more verbosely, \
              printing out everything `lint` prints, but with each match using \
              multiple lines, and the offending line included in the output, \
-             with the match highlighted and underlined with color and carets.");
+             with the match emphasized in the terminal output.");
 
         doc!(us, "split",
             "The number of partitions that should be made in each file when \

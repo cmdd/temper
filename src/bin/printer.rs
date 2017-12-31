@@ -1,4 +1,6 @@
+use bytecount;
 use failure::Error;
+use memchr::memchr;
 use std::path::Path;
 use std::str;
 use termcolor::{ColorSpec, WriteColor};
@@ -27,7 +29,7 @@ impl<W: WriteColor> Printer<W> {
     pub fn write_match(&mut self, m: &Match, context: &str, moffset: Offset) -> Result<(), Error> {
         match self.style {
             Style::Line => self.write_match_line(m),
-            Style::Caret => self.write_match_caret(m, context, moffset),
+            Style::Verbose => self.write_match_verbose(m, context, moffset),
             _ => unimplemented!(),
         }
     }
@@ -42,8 +44,7 @@ impl<W: WriteColor> Printer<W> {
         self.write_eol(1)
     }
 
-    // TODO: What if we're printing multiple lines?
-    fn write_match_caret(
+    fn write_match_verbose(
         &mut self,
         m: &Match,
         context: &str,
@@ -51,7 +52,17 @@ impl<W: WriteColor> Printer<W> {
     ) -> Result<(), Error> {
         let head = format!("{}: {}", m.severity, m.lint);
 
-        let ds = digits(m.line);
+        let nlines = bytecount::count(context.as_bytes(), self.eol) + 1;
+        let mut offsets = vec![0];
+        let mut last = 0;
+        while let Some(i) = memchr(self.eol, &context[last..].as_bytes()) {
+            offsets.push(i + 1);
+            last += i + 1;
+        }
+        offsets.push(last + &context[last..].len());
+        offsets.dedup();
+
+        let ds = digits(m.line + nlines - 1);
         let file = format!(
             "{:>width$} {}:{}:{}",
             "-->",
@@ -60,7 +71,7 @@ impl<W: WriteColor> Printer<W> {
             m.column,
             width = ds + 3
         );
-        let linum = format!("{} | ", m.line,);
+
         let msg = format!("{:>width$} {}", "=", m.msg, width = ds + 2);
 
         self.write(head.as_bytes())?;
@@ -68,20 +79,62 @@ impl<W: WriteColor> Printer<W> {
         self.write(file.as_bytes())?;
         self.write_eol(1)?;
 
-        self.write(linum.as_bytes())?;
-        self.write(&context[..moffset.start].as_bytes())?;
-        if moffset.end >= context.len() {
-            self.write(&context[moffset.start..].as_bytes())?;
+        // TODO: Should we pull out regex?
+        let context = context.replace('\n', " ").replace('\r', " ");
+        let context = context.as_bytes();
+
+        for i in 0..nlines {
+            let linum = format!("{:<width$} | ", m.line + i, width = ds);
+            self.write(linum.as_bytes())?;
+            match moffset.start {
+                start if start >= offsets[i] && start < offsets[i + 1] => {
+                    match moffset.end {
+                        end if end >= offsets[i] && end < offsets[i + 1] => {
+                            self.write(&context[offsets[i]..start])?;
+                            self.write(&context[start..end])?;
+                            self.write(&context[end..offsets[i + 1]])?;
+                        }
+                        end if end >= offsets[i + 1] => {
+                            self.write(&context[offsets[i]..start])?;
+                            self.write(&context[start..offsets[i + 1]])?;
+                        }
+                        _ => {
+                            // It's impossible for the end position to be behind
+                            // the current line, since by definition the last
+                            // line of the context will contain the ending pos
+                            unreachable!();
+                        }
+                    }
+                }
+                start if start < offsets[i] => {
+                    match moffset.end {
+                        end if end >= offsets[i] && end < offsets[i + 1] => {
+                            self.write(&context[offsets[i]..end])?;
+                            self.write(&context[end..offsets[i + 1]])?;
+                        }
+                        end if end >= offsets[i + 1] => {
+                            self.write(&context[offsets[i]..offsets[i + 1]])?;
+                        }
+                        _ => {
+                            // It's impossible for the end position to be behind
+                            // the current line, since by definition the last
+                            // line of the context will contain the ending pos
+                            unreachable!();
+                        }
+                    }
+                }
+                _ => {
+                    // It's impossible for the start position to be ahead of
+                    // the current line, since by definition the first line
+                    // includes the start position, and all subsequent lines
+                    // will have the start position behind them.
+                    unreachable!();
+                }
+            }
             self.write_eol(1)?;
-            self.write(msg.as_bytes())?;
-            self.write_eol(2)
-        } else {
-            self.write(&context[moffset.start..moffset.end].as_bytes())?;
-            self.write(&context[moffset.end..].as_bytes())?;
-            self.write_eol(1)?;
-            self.write(msg.as_bytes())?;
-            self.write_eol(2)
         }
+        self.write(msg.as_bytes())?;
+        self.write_eol(2)
     }
 
     fn write_path<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {

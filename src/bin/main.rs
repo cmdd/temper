@@ -3,12 +3,14 @@
 
 extern crate temper;
 
+extern crate bytecount;
 #[macro_use]
 extern crate clap;
 extern crate failure;
 extern crate glob;
 #[macro_use]
 extern crate lazy_static;
+extern crate memchr;
 extern crate memmap;
 extern crate rayon;
 extern crate termcolor;
@@ -36,6 +38,7 @@ use temper::prose::*;
 
 const EOL: u8 = b'\n';
 
+// TODO: multi-line compatibility
 fn get_line(clens: &[usize], linum: usize) -> (usize, usize) {
     (clens[linum - 1], clens[linum])
 }
