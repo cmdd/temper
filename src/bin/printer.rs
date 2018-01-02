@@ -55,11 +55,11 @@ impl<W: WriteColor> Printer<W> {
         let nlines = bytecount::count(context.as_bytes(), self.eol) + 1;
         let mut offsets = vec![0];
         let mut last = 0;
-        while let Some(i) = memchr(self.eol, &context[last..].as_bytes()) {
+        while let Some(i) = memchr(self.eol, context[last..].as_bytes()) {
             offsets.push(i + 1);
             last += i + 1;
         }
-        offsets.push(last + &context[last..].len());
+        offsets.push(last + context[last..].len());
         offsets.dedup();
 
         let ds = digits(m.line + nlines - 1);

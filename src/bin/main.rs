@@ -84,7 +84,7 @@ fn go(opt: Opt) -> Result<usize, Error> {
             let mut buffer = bufwtr.buffer();
             let prose = Prose {
                 name: file.file_name().unwrap().to_str().unwrap(),
-                text: &mmap,
+                text: mmap,
                 split: split,
                 unicode: unicode,
                 eol: EOL,
@@ -109,7 +109,7 @@ fn go(opt: Opt) -> Result<usize, Error> {
                         start: m.offset.start - ls,
                         end: m.offset.end - ls,
                     };
-                    printer.write_match(&m, &line, o)?;
+                    printer.write_match(&m, line, o)?;
                     match_count += 1;
                 }
             }

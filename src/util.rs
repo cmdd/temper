@@ -22,15 +22,17 @@ pub fn lines(buf: &[u8], eol: u8) -> usize {
 mod tests {
     use super::*;
 
-    const LF: &'static str = "\
-    This is some wonderful multi-line text to test to see if `lines` can \n\
-    correctly determine the number of lines in a string. This str uses LF \n\
-    line endings.";
+    const LF: &'static str =
+        "\
+         This is some wonderful multi-line text to test to see if `lines` can \n\
+         correctly determine the number of lines in a string. This str uses LF \n\
+         line endings.";
 
-    const CRLF: &'static str = "\
-    This is some wonderful multi-line text to test to see if `lines` can \r\n\
-    correctly determine the number of lines in a string. This str uses \r\n\
-    CRLF line endings.";
+    const CRLF: &'static str =
+        "\
+         This is some wonderful multi-line text to test to see if `lines` can \r\n\
+         correctly determine the number of lines in a string. This str uses \r\n\
+         CRLF line endings.";
 
     const LF_EMPTY: &'static str = "\n\n";
 

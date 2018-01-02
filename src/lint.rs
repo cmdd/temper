@@ -174,7 +174,10 @@ tokens = ['whatever']
             mapping: correct_mapping,
         };
 
-        assert_eq!(correct, <Lint as From<TomlLint>>::from(toml::from_str(COMPLETE).unwrap()));
+        assert_eq!(
+            correct,
+            <Lint as From<TomlLint>>::from(toml::from_str(COMPLETE).unwrap())
+        );
     }
 
     #[test]
@@ -191,7 +194,10 @@ tokens = ['whatever']
             mapping: correct_mapping,
         };
 
-        assert_eq!(correct, <Lint as From<TomlLint>>::from(toml::from_str(DEFAULTS).unwrap()));
+        assert_eq!(
+            correct,
+            <Lint as From<TomlLint>>::from(toml::from_str(DEFAULTS).unwrap())
+        );
     }
 
     #[test]

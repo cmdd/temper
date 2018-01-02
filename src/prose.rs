@@ -38,10 +38,10 @@ pub struct Prose<'a> {
 
 impl<'a> Prose<'a> {
     /// Given the index of a character, find its line and column.
-    pub fn pos(&self, offset: usize, clens: &[usize], bo: usize) -> (usize, usize) {
-        let offset = offset + bo;
+    pub fn pos(&self, offset: usize, clens: &[usize], start: usize) -> (usize, usize) {
+        let offset = offset + clens[start];
 
-        let linum = lines(&self.text[..offset + 1].as_bytes(), self.eol);
+        let linum = lines(self.text[clens[start]..offset].as_bytes(), self.eol) + start;
 
         (linum, offset - clens[linum - 1] + 1)
     }
@@ -60,13 +60,13 @@ impl<'a> Prose<'a> {
 
         let mut current_byte = 0;
 
-        while let Some(pos) = memchr(self.eol, &self.text[current_byte..].as_bytes()) {
+        while let Some(pos) = memchr(self.eol, self.text[current_byte..].as_bytes()) {
             lengths.push(current_byte + pos + 1);
             current_byte = current_byte + pos + 1;
         }
 
         let last_length = current_byte + self.text[current_byte..].len();
-        if self.text[current_byte..].len() > 0 {
+        if !self.text[current_byte..].len().is_empty() {
             lengths.push(last_length);
         }
 
@@ -106,13 +106,24 @@ impl<'a> Prose<'a> {
                 };
 
                 let mut regexes: OrderSet<String> = OrderSet::new();
-                let _ = lints.iter().map(|x| regexes.extend(x.mapping.iter().filter(|&(_, v)| v.is_some()).map(|x| x.0.clone())));
+                let _ = lints.iter().map(|x| {
+                    regexes.extend(
+                        x.mapping
+                            .iter()
+                            .filter(|&(_, v)| v.is_some())
+                            .map(|x| x.0.clone()),
+                    )
+                });
 
                 let res1 = lints
                     .into_par_iter()
                     .map(|lint| -> Result<Vec<Match>, Error> {
-                        let rs: Vec<&str> = lint.mapping.iter().filter(|x| x.1.is_none()).map(|x| &x.0[..]).collect();
-                        if rs.len() == 0 {
+                        let rs: Vec<&str> = lint.mapping
+                            .iter()
+                            .filter(|x| x.1.is_none())
+                            .map(|x| &x.0[..])
+                            .collect();
+                        if rs.is_empty() {
                             return Ok(Vec::new());
                         }
 
@@ -122,32 +133,37 @@ impl<'a> Prose<'a> {
                         (0..partitions)
                             .into_par_iter()
                             .map(|i| i * rps)
-                            .map(|s| -> Result<Vec<Match>, Error> {
+                            .map(|ro| -> Result<Vec<Match>, Error> {
                                 let mut ires = Vec::new();
                                 let len = rs.len();
-                                let slice = if s + rps >= len {
-                                    &rs[s..]
+                                let slice = if ro + rps >= len {
+                                    &rs[ro..]
                                 } else {
-                                    &rs[s..s + rps]
+                                    &rs[ro..ro + rps]
                                 };
 
                                 let start = format!("(?:{})", rs[0].clone());
 
-                                let regex = slice.iter().fold(start, |acc, s| acc + "|(?:" + s + ")");
+                                let regex =
+                                    slice.iter().fold(start, |acc, s| acc + "|(?:" + s + ")");
 
-                                let regex = RegexBuilder::new(&regex).unicode(self.unicode).build()?;
+                                let regex =
+                                    RegexBuilder::new(&regex).unicode(self.unicode).build()?;
                                 if regex.is_match(buf) {
                                     let msg = &lint.msg[..];
                                     let name = &lint.name[..];
 
                                     for mat in regex.find_iter(buf) {
-                                        let (l, c) = self.pos(mat.start(), &line_lengths, bytes[s]);
-                                        let bo = Offset {
+                                        let (l, c) = self.pos(mat.start(), &line_lengths, s * lps);
+                                        let off = Offset {
                                             start: bytes[s] + mat.start(),
                                             end: bytes[s] + mat.end(),
                                         };
                                         let mut map = HashMap::new();
-                                        map.insert("match".to_string(), &buf[mat.start()..mat.end()]);
+                                        map.insert(
+                                            "match".to_string(),
+                                            &buf[mat.start()..mat.end()],
+                                        );
 
                                         ires.push(Match {
                                             file: String::from(self.name),
@@ -155,8 +171,9 @@ impl<'a> Prose<'a> {
                                             column: c,
                                             lint: String::from(name),
                                             severity: lint.severity,
-                                            msg: strfmt(msg, &map).unwrap_or_else(|_| String::from(msg)),
-                                            offset: bo,
+                                            msg: strfmt(msg, &map)
+                                                .unwrap_or_else(|_| String::from(msg)),
+                                            offset: off,
                                         });
                                     }
                                 }
@@ -166,7 +183,9 @@ impl<'a> Prose<'a> {
                     })
                     .reduce(|| Ok(Vec::new()), bind_extend);
 
-                let set = RegexSetBuilder::new(&regexes).unicode(self.unicode).build()?;
+                let set = RegexSetBuilder::new(&regexes)
+                    .unicode(self.unicode)
+                    .build()?;
                 let matches: Vec<usize> = set.matches(buf).into_iter().collect();
 
                 let res2 = matches
@@ -180,7 +199,7 @@ impl<'a> Prose<'a> {
                                 if let Some(&Some(ref v)) = lint.mapping.get(regex) {
                                     let msg_mapping = &lint.msg_mapping[..];
                                     let name = &lint.name[..];
-                                    let (l, c) = self.pos(mat.start(), &line_lengths, bytes[s]);
+                                    let (l, c) = self.pos(mat.start(), &line_lengths, s * lps);
                                     let bo = Offset {
                                         start: bytes[s] + mat.start(),
                                         end: bytes[s] + mat.end(),
@@ -195,7 +214,8 @@ impl<'a> Prose<'a> {
                                         column: c,
                                         lint: String::from(name),
                                         severity: lint.severity,
-                                        msg: strfmt(msg_mapping, &map).unwrap_or_else(|_| v.clone()),
+                                        msg: strfmt(msg_mapping, &map)
+                                            .unwrap_or_else(|_| v.clone()),
                                         offset: bo,
                                     });
                                 }
@@ -224,7 +244,6 @@ impl<'a> Prose<'a> {
         let regexes = regexes as f64;
         ((15000.0 / regexes) + (regexes / 10.0)).ceil() as usize
     }
-
 }
 
 fn bind_extend(
