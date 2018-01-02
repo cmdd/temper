@@ -66,7 +66,7 @@ impl<'a> Prose<'a> {
         }
 
         let last_length = current_byte + self.text[current_byte..].len();
-        if !self.text[current_byte..].len().is_empty() {
+        if !self.text[current_byte..].is_empty() {
             lengths.push(last_length);
         }
 
