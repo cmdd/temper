@@ -13,8 +13,8 @@ extern crate lazy_static;
 extern crate memchr;
 extern crate memmap;
 extern crate rayon;
-extern crate termcolor;
 extern crate serde;
+extern crate termcolor;
 #[macro_use]
 extern crate serde_derive;
 

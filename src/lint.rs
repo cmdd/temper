@@ -34,18 +34,24 @@ impl fmt::Display for Severity {
 #[derive(Deserialize)]
 struct TomlLint {
     lint: TomlLintFields,
-    #[serde(default = "default_mapping")] mapping: OrderMap<String, String>,
+    #[serde(default = "default_mapping")]
+    mapping: OrderMap<String, String>,
 }
 
 // TODO: A better default msg_mapping
 #[derive(Deserialize)]
 struct TomlLintFields {
     name: String,
-    #[serde(default)] severity: Severity,
-    #[serde(default = "default_msg")] msg: String,
-    #[serde(default = "default_msg_mapping")] msg_mapping: String,
-    #[serde(default = "default_regex")] regex: String,
-    #[serde(default = "default_tokens")] tokens: Vec<String>,
+    #[serde(default)]
+    severity: Severity,
+    #[serde(default = "default_msg")]
+    msg: String,
+    #[serde(default = "default_msg_mapping")]
+    msg_mapping: String,
+    #[serde(default = "default_regex")]
+    regex: String,
+    #[serde(default = "default_tokens")]
+    tokens: Vec<String>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -71,7 +77,7 @@ impl From<TomlLint> for Lint {
             }
             Some(s)
         };
-        
+
         let rtemp = toml.lint.regex;
         let mut newmap = OrderMap::new();
         let mut regex = HashMap::with_capacity(1);

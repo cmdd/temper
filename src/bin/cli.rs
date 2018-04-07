@@ -51,14 +51,17 @@ struct Doc {
 }
 
 macro_rules! doc {
-    ($map:expr, $name:expr, $short:expr) => {
+    ($map: expr, $name: expr, $short: expr) => {
         doc!($map, $name, $short, $short)
     };
-    ($map:expr, $name:expr, $short:expr, $long:expr) => {
-        $map.insert($name, Doc {
-            short: $short,
-            long: concat!($long, "\n "),
-        });
+    ($map: expr, $name: expr, $short: expr, $long: expr) => {
+        $map.insert(
+            $name,
+            Doc {
+                short: $short,
+                long: concat!($long, "\n "),
+            },
+        );
     };
 }
 
@@ -66,14 +69,19 @@ lazy_static! {
     static ref DOCS: HashMap<&'static str, Doc> = {
         let mut us = HashMap::new();
 
-        doc!(us, "file",
+        doc!(
+            us,
+            "file",
             "The file(s) to check for errors.",
             "The file(s) to run the lints on to check for errors. PATTERN is a \
              glob matching all the files which should be checked. Recursive \
              searches can be done by using glob syntax for recursion. If no \
-             file is specified, temper will read from stdin.");
+             file is specified, temper will read from stdin."
+        );
 
-        doc!(us, "lint",
+        doc!(
+            us,
+            "lint",
             "The lintset(s) to use to check files.",
             "The lintset(s) used to check files. PATTERN is a glob matching all \
              the files which should be used for linting. Including all lintsets \
@@ -83,9 +91,12 @@ lazy_static! {
              the single argument will turn into multiple arguments. Because \
              the lint flag will only take one value (multiple lintsets are passed \
              via repeated use of the flag), the extra arguments will become \
-             file arguments rather than lintset arguments.");
+             file arguments rather than lintset arguments."
+        );
 
-        doc!(us, "output",
+        doc!(
+            us,
+            "output",
             "The style in which to print the results.",
             "The style in which to print the results. \
              \n\n`json` will output the results of the lint in json format. \
@@ -100,9 +111,12 @@ lazy_static! {
              \n\n`verbose` will output the results of the lint more verbosely, \
              printing out everything `lint` prints, but with each match using \
              multiple lines, and the offending line included in the output, \
-             with the match emphasized in the terminal output.");
+             with the match emphasized in the terminal output."
+        );
 
-        doc!(us, "split",
+        doc!(
+            us,
+            "split",
             "The number of partitions that should be made in each file when \
              searching. Can drastically improve performance at the cost of \
              correctness for patterns which match across lines.",
@@ -120,13 +134,17 @@ lazy_static! {
              may be necessary to obtain the best possible performance. In \
              addition, this option partitions the file by line. If a match \
              happens to lie on two lines that will be separated after the \
-             partition, it will no longer match, yielding incorrect results.");
+             partition, it will no longer match, yielding incorrect results."
+        );
 
-        doc!(us, "no-unicode",
+        doc!(
+            us,
+            "no-unicode",
             "Disable unicode support for wildcard characters.",
             "Disable unicode support for wildcard characters like '\\b' and '\\w'. \
              Can improve performance at the cost of correctness (especially \
-             for non-English texts).");
+             for non-English texts)."
+        );
 
         us
     };

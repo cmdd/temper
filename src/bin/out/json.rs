@@ -7,7 +7,7 @@ struct JsonOutput;
 
 impl Output for JsonOutput {
     type Res = Result<(), Error>;
-    
+
     fn exec(&self, m: Match) -> Self::Res {
         unimplemented!();
     }
@@ -22,7 +22,4 @@ struct JsonPrinter<'file, 'lint> {
     matches: Vec<Match<'file, 'lint>>,
 }
 
-impl<'file, 'lint> JsonPrinter<'file, 'lint> {
-    
-}
-
+impl<'file, 'lint> JsonPrinter<'file, 'lint> {}

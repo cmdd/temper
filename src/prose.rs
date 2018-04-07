@@ -58,13 +58,11 @@ impl<'file, 'lints, O: Output> Worker<'file, 'lints, O> {
             match self.stealer.steal() {
                 Steal::Empty | Steal::Retry => continue,
                 Steal::Data(Work::Quit) => break,
-                Steal::Data(Work::File(fw)) => {
-                    self.search(fw)
-                }
+                Steal::Data(Work::File(fw)) => self.search(fw),
             }
         }
     }
-    
+
     fn search(&self, work: FileOff<'file>) {
         for lint in self.lints {
             if let Some(ref token_regex) = lint.tokens {
@@ -73,10 +71,10 @@ impl<'file, 'lints, O: Output> Worker<'file, 'lints, O> {
                     self.search_one(work, lint, regex, None);
                 }
             }
-            
+
             let regexes = lint.mapping.iter().map(|x| x.0).collect::<OrderSet<_>>();
             let set = RegexSetBuilder::new(&regexes).build().unwrap();
-            
+
             for regex in set.matches(work.file.text) {
                 let regex = regexes.get_index(regex).unwrap();
                 let value = lint.mapping.get(*regex).unwrap();
@@ -85,7 +83,7 @@ impl<'file, 'lints, O: Output> Worker<'file, 'lints, O> {
             }
         }
     }
-    
+
     /// Search one file with one regex from one lint.
     /// This is separated out to reduce code duplication and to aid future refactoring efforts (in
     /// case we want to parallelize things further and only have each worker work on this tiny piece
@@ -99,14 +97,16 @@ impl<'file, 'lints, O: Output> Worker<'file, 'lints, O> {
             };
 
             self.output.exec(Match {
-                file: FileOff { offset: offset, ..work },
+                file: FileOff {
+                    offset: offset,
+                    ..work
+                },
                 lint: &lint,
                 line: l,
                 column: c,
                 value_str: value,
             });
         }
-        
     }
 }
 
