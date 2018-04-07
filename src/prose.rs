@@ -1,256 +1,117 @@
-use failure::Error;
-use memchr::memchr;
+use crossbeam_deque::{Deque, Steal, Stealer};
 use ordermap::OrderSet;
-use rayon::prelude::*;
-use regex::{RegexBuilder, RegexSetBuilder};
-use std::collections::HashMap;
-use std::cmp;
-use strfmt::strfmt;
+use regex::{Regex, RegexBuilder, RegexSetBuilder};
 
 use lint::*;
-use util::*;
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Debug, Copy, Clone)]
 pub struct Offset {
-    pub start: usize,
-    pub end: usize,
+    pub start: u32,
+    pub end: u32,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct Match {
-    pub file: String,
-    pub line: usize,
-    pub column: usize,
-    pub lint: String,
-    pub severity: Severity,
-    pub msg: String,
+#[derive(Debug, Clone)]
+pub struct File<'text> {
+    pub name: String,
+    pub text: &'text str,
+}
+
+impl<'text> File<'text> {
+    // stub
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FileOff<'file> {
+    pub file: &'file File<'file>,
+    /// The offset of the file to read
     pub offset: Offset,
 }
 
-#[derive(Debug)]
-pub struct Prose<'a> {
-    pub name: &'a str,
-    pub text: &'a str,
-    pub split: usize,
-    pub unicode: bool,
-    pub eol: u8,
+#[derive(Debug, Clone, Copy)]
+pub enum Work<'file> {
+    File(FileOff<'file>),
+    Quit,
 }
 
-impl<'a> Prose<'a> {
-    /// Given the index of a character, find its line and column.
-    pub fn pos(&self, offset: usize, clens: &[usize], start: usize) -> (usize, usize) {
-        let offset = offset + clens[start];
+#[derive(Debug)]
+pub struct Worker<'file, 'lints, O> {
+    pub stealer: Stealer<Work<'file>>,
+    pub lints: &'lints [Lint],
+    pub output: O,
+}
 
-        let linum = lines(self.text[clens[start]..offset].as_bytes(), self.eol) + start;
+#[derive(Debug, Clone)]
+pub struct Match<'file, 'lint> {
+    pub file: FileOff<'file>,
+    pub lint: &'lint Lint,
+    pub line: u32,
+    pub column: u32,
+    pub value_str: Option<&'lint str>,
+}
 
-        (linum, offset - clens[linum - 1] + 1)
-    }
-
-    // Contains the lengths of each line (and therefore the starting index of each line)
-    // item 0 will always be 0, the starting index of line 1
-    // item 1 will be the starting index of line 2 (which is also the length of line 1)
-    // item 2 will be the starting index of line 3 (which is also the length of lines 1 + 2)
-    // ...
-    // the last item will be equal to the length of the whole string
-    pub fn line_lengths(&self) -> Vec<usize> {
-        let nlines = lines(self.text.as_bytes(), self.eol);
-        let mut lengths: Vec<usize> = Vec::with_capacity(nlines as usize + 2);
-
-        lengths.push(0);
-
-        let mut current_byte = 0;
-
-        while let Some(pos) = memchr(self.eol, self.text[current_byte..].as_bytes()) {
-            lengths.push(current_byte + pos + 1);
-            current_byte = current_byte + pos + 1;
-        }
-
-        let last_length = current_byte + self.text[current_byte..].len();
-        if !self.text[current_byte..].is_empty() {
-            lengths.push(last_length);
-        }
-
-        lengths
-    }
-
-    pub fn lint(&self, lints: &[Lint]) -> Result<Vec<Match>, Error> {
-        let line_lengths = self.line_lengths();
-        let nlines = line_lengths.len() - 1;
-        let split = cmp::min(nlines, self.split);
-        let lps = (nlines as f32 / split as f32).ceil() as usize;
-
-        let mut bytes: Vec<usize> = Vec::with_capacity(self.split + 2);
-        bytes.push(0);
-
-        for line in (1..split).map(|i| i * lps) {
-            if line < nlines {
-                bytes.push(line_lengths[line]);
+// TODO: Should we not duplicate creating the regexes from lints?
+//       In this scheme, a worker gets to work on one part of one file with one regex from one lint.
+// TODO: Or maybe rayon over the lints and regexes
+impl<'file, 'lints, O: Output> Worker<'file, 'lints, O> {
+    pub fn exec(&self) {
+        loop {
+            match self.stealer.steal() {
+                Steal::Empty | Steal::Retry => continue,
+                Steal::Data(Work::Quit) => break,
+                Steal::Data(Work::File(fw)) => {
+                    self.search(fw)
+                }
             }
         }
-
-        // Add 1 to get the whole file to be read; ranges are exclusive at
-        // the right end
-        bytes.push(*line_lengths.last().unwrap() + 1);
-
-        (0..cmp::max((bytes.len() - 1), 1))
-            .into_par_iter()
-            .map(|s| {
-                let buf = if bytes[s] < self.text.len() {
-                    if bytes[s + 1] < self.text.len() {
-                        &self.text[bytes[s]..bytes[s + 1]]
-                    } else {
-                        &self.text[bytes[s]..]
-                    }
-                } else {
-                    ""
-                };
-
-                let mut regexes: OrderSet<String> = OrderSet::new();
-                let _ = lints.iter().map(|x| {
-                    regexes.extend(
-                        x.mapping
-                            .iter()
-                            .filter(|&(_, v)| v.is_some())
-                            .map(|x| x.0.clone()),
-                    )
-                });
-
-                let res1 = lints
-                    .into_par_iter()
-                    .map(|lint| -> Result<Vec<Match>, Error> {
-                        let rs: Vec<&str> = lint.mapping
-                            .iter()
-                            .filter(|x| x.1.is_none())
-                            .map(|x| &x.0[..])
-                            .collect();
-                        if rs.is_empty() {
-                            return Ok(Vec::new());
-                        }
-
-                        let len = rs.len();
-                        let rps = self.regexes_per_partition(len);
-                        let partitions = (len as f64 / rps as f64).ceil() as usize;
-                        (0..partitions)
-                            .into_par_iter()
-                            .map(|i| i * rps)
-                            .map(|ro| -> Result<Vec<Match>, Error> {
-                                let mut ires = Vec::new();
-                                let len = rs.len();
-                                let slice = if ro + rps >= len {
-                                    &rs[ro..]
-                                } else {
-                                    &rs[ro..ro + rps]
-                                };
-
-                                let start = format!("(?:{})", rs[0].clone());
-
-                                let regex =
-                                    slice.iter().fold(start, |acc, s| acc + "|(?:" + s + ")");
-
-                                let regex =
-                                    RegexBuilder::new(&regex).unicode(self.unicode).build()?;
-                                if regex.is_match(buf) {
-                                    let msg = &lint.msg[..];
-                                    let name = &lint.name[..];
-
-                                    for mat in regex.find_iter(buf) {
-                                        let (l, c) = self.pos(mat.start(), &line_lengths, s * lps);
-                                        let off = Offset {
-                                            start: bytes[s] + mat.start(),
-                                            end: bytes[s] + mat.end(),
-                                        };
-                                        let mut map = HashMap::new();
-                                        map.insert(
-                                            "match".to_string(),
-                                            &buf[mat.start()..mat.end()],
-                                        );
-
-                                        ires.push(Match {
-                                            file: String::from(self.name),
-                                            line: l,
-                                            column: c,
-                                            lint: String::from(name),
-                                            severity: lint.severity,
-                                            msg: strfmt(msg, &map)
-                                                .unwrap_or_else(|_| String::from(msg)),
-                                            offset: off,
-                                        });
-                                    }
-                                }
-                                Ok(ires)
-                            })
-                            .reduce(|| Ok(Vec::new()), bind_extend)
-                    })
-                    .reduce(|| Ok(Vec::new()), bind_extend);
-
-                let set = RegexSetBuilder::new(&regexes)
-                    .unicode(self.unicode)
-                    .build()?;
-                let matches: Vec<usize> = set.matches(buf).into_iter().collect();
-
-                let res2 = matches
-                    .par_iter()
-                    .map(|rix| -> Result<Vec<Match>, Error> {
-                        let regex = regexes.get_index(*rix).unwrap();
-                        let r = RegexBuilder::new(regex).unicode(self.unicode).build()?;
-                        let mut ires = Vec::new();
-                        for mat in r.find_iter(buf) {
-                            for lint in lints {
-                                if let Some(&Some(ref v)) = lint.mapping.get(regex) {
-                                    let msg_mapping = &lint.msg_mapping[..];
-                                    let name = &lint.name[..];
-                                    let (l, c) = self.pos(mat.start(), &line_lengths, s * lps);
-                                    let bo = Offset {
-                                        start: bytes[s] + mat.start(),
-                                        end: bytes[s] + mat.end(),
-                                    };
-                                    let mut map = HashMap::new();
-                                    map.insert("match".to_string(), &buf[mat.start()..mat.end()]);
-                                    map.insert("value".to_string(), v);
-
-                                    ires.push(Match {
-                                        file: String::from(self.name),
-                                        line: l,
-                                        column: c,
-                                        lint: String::from(name),
-                                        severity: lint.severity,
-                                        msg: strfmt(msg_mapping, &map)
-                                            .unwrap_or_else(|_| v.clone()),
-                                        offset: bo,
-                                    });
-                                }
-                            }
-                        }
-                        Ok(ires)
-                    })
-                    .reduce(|| Ok(Vec::new()), bind_extend);
-
-                let mut nm = bind_extend(res1, res2)?;
-
-                nm.par_sort_unstable_by(|x, y| {
-                    if x.line.cmp(&y.line) == cmp::Ordering::Equal {
-                        x.column.cmp(&y.column)
-                    } else {
-                        x.line.cmp(&y.line)
-                    }
-                });
-
-                Ok(nm)
-            })
-            .reduce(|| Ok(Vec::new()), bind_extend)
     }
+    
+    fn search(&self, work: FileOff<'file>) {
+        for lint in self.lints {
+            if let Some(ref token_regex) = lint.tokens {
+                let regex = RegexBuilder::new(token_regex).build().unwrap();
+                if regex.is_match(work.file.text) {
+                    self.search_one(work, lint, regex, None);
+                }
+            }
+            
+            let regexes = lint.mapping.iter().map(|x| x.0).collect::<OrderSet<_>>();
+            let set = RegexSetBuilder::new(&regexes).build().unwrap();
+            
+            for regex in set.matches(work.file.text) {
+                let regex = regexes.get_index(regex).unwrap();
+                let value = lint.mapping.get(*regex).unwrap();
+                let regex = RegexBuilder::new(&regex).build().unwrap();
+                self.search_one(work, lint, regex, Some(value));
+            }
+        }
+    }
+    
+    /// Search one file with one regex from one lint.
+    /// This is separated out to reduce code duplication and to aid future refactoring efforts (in
+    /// case we want to parallelize things further and only have each worker work on this tiny piece
+    /// of work)
+    fn search_one(&self, work: FileOff<'file>, lint: &Lint, regex: Regex, value: Option<&str>) {
+        for mat in regex.find_iter(work.file.text) {
+            let (l, c) = unimplemented!();
+            let offset = Offset {
+                start: work.offset.start + mat.start() as u32,
+                end: work.offset.end + mat.end() as u32,
+            };
 
-    fn regexes_per_partition(&self, regexes: usize) -> usize {
-        let regexes = regexes as f64;
-        ((15000.0 / regexes) + (regexes / 10.0)).ceil() as usize
+            self.output.exec(Match {
+                file: FileOff { offset: offset, ..work },
+                lint: &lint,
+                line: l,
+                column: c,
+                value_str: value,
+            });
+        }
+        
     }
 }
 
-fn bind_extend(
-    a: Result<Vec<Match>, Error>,
-    b: Result<Vec<Match>, Error>,
-) -> Result<Vec<Match>, Error> {
-    bind(a, b, |a, b| {
-        a.iter().chain(b.iter()).cloned().collect::<Vec<_>>()
-    })
+pub trait Output {
+    type Res;
+
+    fn exec(&self, m: Match) -> Self::Res;
 }

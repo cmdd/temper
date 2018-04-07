@@ -34,7 +34,7 @@ impl fmt::Display for Severity {
 #[derive(Deserialize)]
 struct TomlLint {
     lint: TomlLintFields,
-    #[serde(default = "default_mapping")] mapping: OrderMap<String, Option<String>>,
+    #[serde(default = "default_mapping")] mapping: OrderMap<String, String>,
 }
 
 // TODO: A better default msg_mapping
@@ -54,15 +54,24 @@ pub struct Lint {
     pub severity: Severity,
     pub msg: String,
     pub msg_mapping: String,
-    pub mapping: OrderMap<String, Option<String>>,
+    pub tokens: Option<String>,
+    pub mapping: OrderMap<String, String>,
 }
 
 impl From<TomlLint> for Lint {
-    fn from(mut toml: TomlLint) -> Self {
-        for token in toml.lint.tokens {
-            toml.mapping.insert(token, None);
-        }
-
+    fn from(toml: TomlLint) -> Self {
+        let tokens = if toml.lint.tokens.is_empty() {
+            None
+        } else {
+            let mut s = String::with_capacity(500);
+            for regex in toml.lint.tokens {
+                s.push_str("(?:");
+                s.push_str(regex.as_str());
+                s.push_str(")|");
+            }
+            Some(s)
+        };
+        
         let rtemp = toml.lint.regex;
         let mut newmap = OrderMap::new();
         let mut regex = HashMap::with_capacity(1);
@@ -76,6 +85,7 @@ impl From<TomlLint> for Lint {
             severity: toml.lint.severity,
             msg: toml.lint.msg,
             msg_mapping: toml.lint.msg_mapping,
+            tokens: tokens,
             mapping: newmap,
         }
     }
@@ -96,7 +106,7 @@ pub fn linters<T: AsRef<Path>>(paths: Vec<T>) -> Result<Lintset, Error> {
     Ok(res)
 }
 
-fn default_mapping() -> OrderMap<String, Option<String>> {
+fn default_mapping() -> OrderMap<String, String> {
     OrderMap::new()
 }
 
@@ -158,19 +168,22 @@ tokens = ['whatever']
     #[test]
     fn lint_parse_complete() {
         let mut correct_mapping = OrderMap::new();
-        correct_mapping.insert(String::from("f a f"), None);
-        correct_mapping.insert(String::from("f (?-u:b) f"), None);
-        correct_mapping.insert(String::from("f c f"), None);
-        correct_mapping.insert(String::from("f breakfast f"), Some(String::from("yes")));
-        correct_mapping.insert(String::from("f lunch f"), Some(String::from("yes")));
-        correct_mapping.insert(String::from("f dinner f"), Some(String::from("true")));
-        correct_mapping.insert(String::from("f dessert f"), Some(String::from("false")));
+        correct_mapping.insert(String::from("f breakfast f"), String::from("yes"));
+        correct_mapping.insert(String::from("f lunch f"), String::from("yes"));
+        correct_mapping.insert(String::from("f dinner f"), String::from("true"));
+        correct_mapping.insert(String::from("f dessert f"), String::from("false"));
 
+        let mut correct_tokens = String::from("(?:f a f)|(?:f (?-u:b) f)|(?:f c f)");
+
+        correct_tokens.push_str("(?:f a f)|");
+        correct_tokens.push_str("f (?-u:b) f");
+        correct_tokens.push_str("f c f");
         let correct = Lint {
             name: String::from("temper.test.complete"),
             severity: Severity::Error,
             msg: String::from("This is a complete toml lintset. Match: {match}"),
             msg_mapping: String::from("This is a complete toml lintset. {match}: {value}"),
+            tokens: Some(correct_tokens),
             mapping: correct_mapping,
         };
 

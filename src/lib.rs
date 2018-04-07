@@ -1,4 +1,5 @@
 extern crate bytecount;
+extern crate crossbeam_deque;
 extern crate failure;
 extern crate memchr;
 extern crate ordermap;

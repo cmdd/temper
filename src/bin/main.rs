@@ -7,20 +7,23 @@ extern crate bytecount;
 #[macro_use]
 extern crate clap;
 extern crate failure;
-extern crate glob;
+extern crate ignore;
 #[macro_use]
 extern crate lazy_static;
 extern crate memchr;
 extern crate memmap;
 extern crate rayon;
 extern crate termcolor;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 
-mod opt;
 mod cli;
-mod printer;
+mod out;
+mod opt;
 
 use failure::Error;
-use glob::glob;
+use ignore::WalkBuilder;
 use memmap::Mmap;
 use rayon::prelude::*;
 use std::cmp;
@@ -32,7 +35,7 @@ use std::sync::Arc;
 use termcolor::{BufferWriter, ColorChoice};
 
 use opt::*;
-use printer::*;
+use out::*;
 use temper::lint::*;
 use temper::prose::*;
 
@@ -57,19 +60,19 @@ fn go(opt: Opt) -> Result<usize, Error> {
     // The -l flag only takes one value per -l, so the rest become arguments
     // as files
     for l in opt.lints {
-        for entry in glob(&l)? {
-            ls.push(entry?);
+        for entry in WalkBuilder::new(&l).build() {
+            ls.push(entry?.path());
         }
     }
 
     for f in opt.files {
-        for entry in glob(&f)? {
-            fs.push(entry?);
+        for entry in WalkBuilder::new(&f).build() {
+            fs.push(entry?.path());
         }
     }
 
-    let lints: Lintset = linters(ls.iter().map(PathBuf::from).collect())?;
-    let files: Vec<PathBuf> = fs.iter().map(PathBuf::from).collect();
+    let lints: Lintset = linters(ls.iter().collect())?;
+    let files: Vec<PathBuf> = fs.iter().collect();
 
     let bufwtr = Arc::new(BufferWriter::stdout(ColorChoice::Always));
 
@@ -143,4 +146,17 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+// TODO: impl From<Vec<PathBuf>>
+pub fn linters<T: AsRef<Path>>(paths: Vec<T>) -> Result<Lintset, Error> {
+    let mut res: Lintset = Vec::new();
+    for path in paths {
+        let mut f = fs::File::open(path)?;
+        let mut contents = String::new();
+        f.read_to_string(&mut contents)?;
+        let lint: Lint = <Lint as From<TomlLint>>::from(toml::from_str(&contents)?);
+        res.push(lint);
+    }
+    Ok(res)
 }

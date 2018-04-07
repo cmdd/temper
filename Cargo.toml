@@ -12,11 +12,17 @@ path = "src/lib.rs"
 name = "temper"
 path = "src/bin/main.rs"
 
+[[bench]]
+name = "bench"
+harness = false
+
 [dependencies]
 bytecount = "0.2"
 clap = "2"
+crossbeam-channel = "0.1"
+crossbeam-deque = "0.3"
 failure = "0.1"
-glob = "0.2"
+ignore = "0.4"
 lazy_static = "1.0"
 memchr = "2.0"
 memmap = "0.6"
@@ -34,7 +40,7 @@ version = "0.3"
 features = ["serde-1"]
 
 [dev-dependencies]
-bencher = "0.1"
+criterion = "0.2"
 quickcheck = "0.6"
 
 [features]
@@ -42,3 +48,4 @@ accel = ["regex/simd-accel", "bytecount/avx-accel", "bytecount/simd-accel"]
 
 [profile.release]
 lto = true
+codegen-units = 1
