@@ -6,6 +6,8 @@ extern crate temper;
 extern crate bytecount;
 #[macro_use]
 extern crate clap;
+extern crate crossbeam_channel;
+extern crate crossbeam_deque;
 extern crate failure;
 extern crate ignore;
 #[macro_use]
@@ -14,9 +16,10 @@ extern crate memchr;
 extern crate memmap;
 extern crate rayon;
 extern crate serde;
-extern crate termcolor;
 #[macro_use]
 extern crate serde_derive;
+extern crate serde_json;
+extern crate termcolor;
 
 mod cli;
 mod out;
@@ -28,7 +31,7 @@ use memmap::Mmap;
 use rayon::prelude::*;
 use std::cmp;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::Path;
 use std::result::Result;
 use std::str;
 use std::sync::Arc;
@@ -49,7 +52,7 @@ fn get_line(clens: &[usize], linum: usize) -> (usize, usize) {
 fn go(opt: Opt) -> Result<usize, Error> {
     // TODO: stdin
     let mut ls = Vec::new();
-    let mut fs = Vec::new();
+    let mut files = Vec::new();
 
     let split = cmp::max(opt.split, 1);
     let style = opt.style;
@@ -67,12 +70,11 @@ fn go(opt: Opt) -> Result<usize, Error> {
 
     for f in opt.files {
         for entry in WalkBuilder::new(&f).build() {
-            fs.push(entry?.path());
+            files.push(entry?.path());
         }
     }
 
     let lints: Lintset = linters(ls.iter().collect())?;
-    let files: Vec<PathBuf> = fs.iter().collect();
 
     let bufwtr = Arc::new(BufferWriter::stdout(ColorChoice::Always));
 
@@ -146,17 +148,4 @@ fn main() {
             std::process::exit(1);
         }
     }
-}
-
-// TODO: impl From<Vec<PathBuf>>
-pub fn linters<T: AsRef<Path>>(paths: Vec<T>) -> Result<Lintset, Error> {
-    let mut res: Lintset = Vec::new();
-    for path in paths {
-        let mut f = fs::File::open(path)?;
-        let mut contents = String::new();
-        f.read_to_string(&mut contents)?;
-        let lint: Lint = <Lint as From<TomlLint>>::from(toml::from_str(&contents)?);
-        res.push(lint);
-    }
-    Ok(res)
 }

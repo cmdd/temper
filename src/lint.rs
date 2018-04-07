@@ -91,7 +91,7 @@ impl From<TomlLint> for Lint {
             severity: toml.lint.severity,
             msg: toml.lint.msg,
             msg_mapping: toml.lint.msg_mapping,
-            tokens: tokens,
+            tokens,
             mapping: newmap,
         }
     }

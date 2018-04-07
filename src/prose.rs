@@ -1,4 +1,4 @@
-use crossbeam_deque::{Deque, Steal, Stealer};
+use crossbeam_deque::{Steal, Stealer};
 use ordermap::OrderSet;
 use regex::{Regex, RegexBuilder, RegexSetBuilder};
 
@@ -52,7 +52,9 @@ pub struct Match<'file, 'lint> {
 // TODO: Should we not duplicate creating the regexes from lints?
 //       In this scheme, a worker gets to work on one part of one file with one regex from one lint.
 // TODO: Or maybe rayon over the lints and regexes
-impl<'file, 'lints, O: Output> Worker<'file, 'lints, O> {
+// TODO: Maybe instead of giving the Worker an output struct, just give it the sending side of a
+//       channel; this would simplify things & reduce duplicated code
+impl<'file, 'lints, O: Output<'file, 'lints>> Worker<'file, 'lints, O> {
     pub fn exec(&self) {
         loop {
             match self.stealer.steal() {
@@ -78,7 +80,7 @@ impl<'file, 'lints, O: Output> Worker<'file, 'lints, O> {
             for regex in set.matches(work.file.text) {
                 let regex = regexes.get_index(regex).unwrap();
                 let value = lint.mapping.get(*regex).unwrap();
-                let regex = RegexBuilder::new(&regex).build().unwrap();
+                let regex = RegexBuilder::new(regex).build().unwrap();
                 self.search_one(work, lint, regex, Some(value));
             }
         }
@@ -88,7 +90,7 @@ impl<'file, 'lints, O: Output> Worker<'file, 'lints, O> {
     /// This is separated out to reduce code duplication and to aid future refactoring efforts (in
     /// case we want to parallelize things further and only have each worker work on this tiny piece
     /// of work)
-    fn search_one(&self, work: FileOff<'file>, lint: &Lint, regex: Regex, value: Option<&str>) {
+    fn search_one(&self, work: FileOff<'file>, lint: &'lints Lint, regex: Regex, value: Option<&'lints str>) {
         for mat in regex.find_iter(work.file.text) {
             let (l, c) = unimplemented!();
             let offset = Offset {
@@ -98,10 +100,10 @@ impl<'file, 'lints, O: Output> Worker<'file, 'lints, O> {
 
             self.output.exec(Match {
                 file: FileOff {
-                    offset: offset,
+                    offset,
                     ..work
                 },
-                lint: &lint,
+                lint: lint,
                 line: l,
                 column: c,
                 value_str: value,
@@ -110,8 +112,11 @@ impl<'file, 'lints, O: Output> Worker<'file, 'lints, O> {
     }
 }
 
-pub trait Output {
+pub trait Output<'file, 'lint> {
     type Res;
+    type Close;
 
-    fn exec(&self, m: Match) -> Self::Res;
+    fn exec(&self, m: Match<'file, 'lint>) -> Self::Res;
+
+    fn close(&self) -> Self::Close;
 }

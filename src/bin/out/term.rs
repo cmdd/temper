@@ -5,6 +5,7 @@ use std::path::Path;
 use std::str;
 use termcolor::{ColorSpec, WriteColor};
 
+use temper::lint::*;
 use temper::prose::*;
 use cli::*;
 
@@ -17,7 +18,17 @@ pub struct Colors {
     pub matched: ColorSpec,
 }
 
-pub struct Printer<W> {
+#[derive(Clone, Debug)]
+pub struct CliMatch<'file, 'lint> {
+    file: &'file str,
+    lint: &'lint str,
+    line: u32,
+    column: u32,
+    severity: Severity,
+    msg: &'lint str,
+}
+
+pub struct CliPrinter<W> {
     pub wtr: W,
     pub style: Style,
     pub colors: Colors,
@@ -25,8 +36,8 @@ pub struct Printer<W> {
 }
 
 // TODO: Colors!
-impl<W: WriteColor> Printer<W> {
-    pub fn write_match(&mut self, m: &Match, context: &str, moffset: Offset) -> Result<(), Error> {
+impl<W: WriteColor> CliPrinter<W> {
+    pub fn write_match(&mut self, m: &CliMatch, context: &str, moffset: Offset) -> Result<(), Error> {
         match self.style {
             Style::Line => self.write_match_line(m),
             Style::Verbose => self.write_match_verbose(m, context, moffset),
@@ -34,7 +45,7 @@ impl<W: WriteColor> Printer<W> {
         }
     }
 
-    fn write_match_line(&mut self, m: &Match) -> Result<(), Error> {
+    fn write_match_line(&mut self, m: &CliMatch) -> Result<(), Error> {
         let s = format!(
             "{}:{}:{} {}:{} {}",
             m.file, m.line, m.column, m.lint, m.severity, m.msg
@@ -46,7 +57,7 @@ impl<W: WriteColor> Printer<W> {
 
     fn write_match_verbose(
         &mut self,
-        m: &Match,
+        m: &CliMatch,
         context: &str,
         moffset: Offset,
     ) -> Result<(), Error> {
@@ -167,4 +178,9 @@ impl<W: WriteColor> Printer<W> {
 
 fn digits(num: usize) -> usize {
     ((num as f64).log(10.0).floor() + 1.0) as usize
+}
+
+pub struct CliOrchestrator<'file, 'lint, W> {
+    pub matches: Vec<CliMatch<'file, 'lint>>,
+    pub printer: CliPrinter<W>,
 }
