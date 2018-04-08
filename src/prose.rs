@@ -17,16 +17,16 @@ impl Offset {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Prose {
-    pub name: String,
-    pub text: String,
+#[derive(Debug, Clone, Copy)]
+pub struct Prose<'file> {
+    pub name: &'file str,
+    pub text: &'file str,
     pub size: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct ProseOff<'file> {
-    pub prose: &'file Prose,
+    pub prose: Prose<'file>,
     /// The offset of the file to read
     pub offset: Offset,
 }
@@ -81,7 +81,7 @@ impl<'file, 'lint, O: Output<'file, 'lint>> Worker<'file, 'lint, O> {
         for lint in self.lints {
             if let Some(ref token_regex) = lint.tokens {
                 let regex = RegexBuilder::new(token_regex).build()?;
-                if regex.is_match(&work.prose.text) {
+                if regex.is_match(work.prose.text) {
                     self.search_one(work, lint, regex, None);
                 }
             }
@@ -89,7 +89,7 @@ impl<'file, 'lint, O: Output<'file, 'lint>> Worker<'file, 'lint, O> {
             let regexes = lint.mapping.iter().map(|x| x.0).collect::<OrderSet<_>>();
             let set = RegexSetBuilder::new(&regexes).build()?;
 
-            for regex in set.matches(&work.prose.text) {
+            for regex in set.matches(work.prose.text) {
                 let regex = regexes.get_index(regex).unwrap();
                 let value = lint.mapping.get(*regex).unwrap();
                 let regex = RegexBuilder::new(regex).build()?;
@@ -111,7 +111,7 @@ impl<'file, 'lint, O: Output<'file, 'lint>> Worker<'file, 'lint, O> {
         regex: Regex,
         value: Option<&'lint str>,
     ) {
-        for mat in regex.find_iter(&work.prose.text) {
+        for mat in regex.find_iter(work.prose.text) {
             // TODO: [#A] Proper line/column
             let (l, c) = (1, 1);
             let offset = Offset {

@@ -47,6 +47,12 @@ use temper::prose::*;
 
 const EOL: u8 = b'\n';
 
+struct ProseMmap {
+    name: String,
+    text: Mmap,
+    size: u64,
+}
+
 // TODO: multi-line compatibility
 fn get_line(clens: &[usize], linum: usize) -> (usize, usize) {
     (clens[linum - 1], clens[linum])
@@ -78,15 +84,12 @@ fn go(opt: Opt) -> Result<u32, Error> {
             let p = entry.path();
             let f = File::open(p)?;
             let mmap = unsafe { Mmap::map(&f)? };
-            let mmap = String::from_utf8(mmap.to_vec())?;
 
-            let prose = Prose {
-                name: p.to_owned().to_string_lossy().to_string(),
+            fs.push(ProseMmap {
                 text: mmap,
+                name: p.to_owned().to_string_lossy().to_string(),
                 size: f.metadata()?.len(),
-            };
-
-            fs.push(prose);
+            });
         }
     }
 
@@ -94,7 +97,11 @@ fn go(opt: Opt) -> Result<u32, Error> {
         // TODO: [#A] Real offsets
 
         q.push(Work::Prose(ProseOff {
-            prose: f,
+            prose: Prose {
+                name: &f.name,
+                text: str::from_utf8(&f.text)?,
+                size: f.size,
+            },
             offset: Offset::new(0, f.size),
         }))
     }
