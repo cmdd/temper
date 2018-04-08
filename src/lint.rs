@@ -2,13 +2,11 @@
 extern crate toml;
 
 use failure::Error;
+use ordermap::OrderMap;
 use std::collections::HashMap;
 use std::fmt;
-use std::fs;
-use std::io::prelude::*;
-use std::path::Path;
+use std::str::FromStr;
 use strfmt::strfmt;
-use ordermap::OrderMap;
 
 #[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +73,7 @@ impl From<TomlLint> for Lint {
                 s.push_str(regex.as_str());
                 s.push_str(")|");
             }
+            s.pop();
             Some(s)
         };
 
@@ -97,20 +96,16 @@ impl From<TomlLint> for Lint {
     }
 }
 
-pub type Lintset = Vec<Lint>;
+impl FromStr for Lint {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Error> {
+        let toml = toml::from_str(s)?;
 
-// TODO: impl From<Vec<PathBuf>>
-pub fn linters<T: AsRef<Path>>(paths: Vec<T>) -> Result<Lintset, Error> {
-    let mut res: Lintset = Vec::new();
-    for path in paths {
-        let mut f = fs::File::open(path)?;
-        let mut contents = String::new();
-        f.read_to_string(&mut contents)?;
-        let lint: Lint = <Lint as From<TomlLint>>::from(toml::from_str(&contents)?);
-        res.push(lint);
+        Ok(<Lint as From<TomlLint>>::from(toml))
     }
-    Ok(res)
 }
+
+pub type Lintset = Vec<Lint>;
 
 fn default_mapping() -> OrderMap<String, String> {
     OrderMap::new()

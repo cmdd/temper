@@ -6,6 +6,7 @@ extern crate temper;
 extern crate bytecount;
 #[macro_use]
 extern crate clap;
+extern crate crossbeam;
 extern crate crossbeam_channel;
 extern crate crossbeam_deque;
 extern crate failure;
@@ -14,6 +15,7 @@ extern crate ignore;
 extern crate lazy_static;
 extern crate memchr;
 extern crate memmap;
+extern crate num_cpus;
 extern crate rayon;
 extern crate serde;
 #[macro_use]
@@ -22,23 +24,24 @@ extern crate serde_json;
 extern crate termcolor;
 
 mod cli;
-mod out;
 mod opt;
+mod out;
 
+use crossbeam::scope;
+use crossbeam_channel::unbounded;
+use crossbeam_deque::Deque;
 use failure::Error;
 use ignore::WalkBuilder;
 use memmap::Mmap;
-use rayon::prelude::*;
 use std::cmp;
 use std::fs::File;
-use std::path::Path;
 use std::result::Result;
-use std::str;
-use std::sync::Arc;
+use std::str::{self, FromStr};
 use termcolor::{BufferWriter, ColorChoice};
 
+use cli::*;
 use opt::*;
-use out::*;
+use out::json::*;
 use temper::lint::*;
 use temper::prose::*;
 
@@ -49,88 +52,91 @@ fn get_line(clens: &[usize], linum: usize) -> (usize, usize) {
     (clens[linum - 1], clens[linum])
 }
 
-fn go(opt: Opt) -> Result<usize, Error> {
+fn go(opt: Opt) -> Result<u32, Error> {
     // TODO: stdin
     let mut ls = Vec::new();
-    let mut files = Vec::new();
+    let mut fs = Vec::new();
+    let q = Deque::new();
 
     let split = cmp::max(opt.split, 1);
     let style = opt.style;
     let unicode = opt.unicode;
 
-    // A note on the unquoted glob:
-    // When the os expands an unquoted glob, it'll turn into multiple values
-    // The -l flag only takes one value per -l, so the rest become arguments
-    // as files
+    // TODO: So much heap allocation ugh
     for l in opt.lints {
         for entry in WalkBuilder::new(&l).build() {
-            ls.push(entry?.path());
+            let mut f = File::open(entry?.path())?;
+            let mmap = unsafe { Mmap::map(&f)? };
+            let mmap = str::from_utf8(&mmap)?;
+            ls.push(Lint::from_str(mmap)?);
         }
     }
 
     for f in opt.files {
         for entry in WalkBuilder::new(&f).build() {
-            files.push(entry?.path());
+            let entry = entry?;
+            let p = entry.path();
+            let f = File::open(p)?;
+            let mmap = unsafe { Mmap::map(&f)? };
+            let mmap = String::from_utf8(mmap.to_vec())?;
+
+            let prose = Prose {
+                name: p.to_owned().to_string_lossy().to_string(),
+                text: mmap,
+                size: f.metadata()?.len(),
+            };
+
+            fs.push(prose);
         }
     }
 
-    let lints: Lintset = linters(ls.iter().collect())?;
+    for f in &fs {
+        // TODO: [#A] Real offsets
 
-    let bufwtr = Arc::new(BufferWriter::stdout(ColorChoice::Always));
+        q.push(Work::Prose(ProseOff {
+            prose: f,
+            offset: Offset::new(0, f.size),
+        }))
+    }
 
-    files
-        .par_iter()
-        .map(|file| -> Result<usize, Error> {
-            let f = File::open(file)?;
-            let mmap = unsafe { Mmap::map(&f)? };
-            let mmap = str::from_utf8(&mmap)?;
+    let cpus = num_cpus::get();
 
-            let bufwtr = Arc::clone(&bufwtr);
-            let mut buffer = bufwtr.buffer();
-            let prose = Prose {
-                name: file.file_name().unwrap().to_str().unwrap(),
-                text: mmap,
-                split: split,
-                unicode: unicode,
-                eol: EOL,
-            };
-            let line_lengths = prose.line_lengths();
-            let matches = prose.lint(&lints)?;
-            let mut match_count = 0;
+    let (tx, rx) = unbounded();
 
-            {
-                // TODO: Actually use terminal's width
-                let mut printer = Printer {
-                    wtr: &mut buffer,
-                    style: style,
-                    colors: Colors::default(),
-                    eol: EOL,
+    scope(|scope| {
+        for _ in 0..cpus {
+            q.push(Work::Quit);
+            let tx = tx.clone();
+            let s = q.stealer();
+            let lints = &ls;
+            scope.spawn(move || {
+                let output = match style {
+                    Style::Json => JsonOutput { tx },
+                    _ => unimplemented!(),
                 };
 
-                for m in matches {
-                    let (ls, le) = get_line(&line_lengths, m.line);
-                    let line = &mmap[ls..le].trim_right();
-                    let o = Offset {
-                        start: m.offset.start - ls,
-                        end: m.offset.end - ls,
-                    };
-                    printer.write_match(&m, line, o)?;
-                    match_count += 1;
-                }
-            }
+                let worker = Worker {
+                    stealer: s,
+                    lints,
+                    output,
+                };
 
-            bufwtr.print(&buffer)?;
+                worker.exec();
+            });
+        }
+    });
 
-            Ok(match_count)
-        })
-        .reduce(
-            || Ok(0),
-            |a, b| match (a, b) {
-                (Ok(a), Ok(b)) => Ok(a + b),
-                (Err(a), _) => Err(a),
-                (_, Err(b)) => Err(b),
-            },
-        )
+    match style {
+        Style::Json => {
+            let mut orchestrator = JsonOrchestrator {
+                matches: Vec::new(),
+                rx,
+            };
+
+            orchestrator.print_all(cpus as u8)
+        }
+        _ => unimplemented!(),
+    }
 }
 
 fn main() {

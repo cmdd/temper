@@ -1,4 +1,5 @@
 use crossbeam_deque::{Steal, Stealer};
+use failure::Error;
 use ordermap::OrderSet;
 use regex::{Regex, RegexBuilder, RegexSetBuilder};
 
@@ -6,43 +7,46 @@ use lint::*;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Offset {
-    pub start: u32,
-    pub end: u32,
+    pub start: u64,
+    pub end: u64,
+}
+
+impl Offset {
+    pub fn new(start: u64, end: u64) -> Self {
+        Offset { start, end }
+    }
 }
 
 #[derive(Debug, Clone)]
-pub struct File<'text> {
+pub struct Prose {
     pub name: String,
-    pub text: &'text str,
-}
-
-impl<'text> File<'text> {
-    // stub
+    pub text: String,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct FileOff<'file> {
-    pub file: &'file File<'file>,
+pub struct ProseOff<'file> {
+    pub prose: &'file Prose,
     /// The offset of the file to read
     pub offset: Offset,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum Work<'file> {
-    File(FileOff<'file>),
+    Prose(ProseOff<'file>),
     Quit,
 }
 
 #[derive(Debug)]
-pub struct Worker<'file, 'lints, O> {
+pub struct Worker<'file, 'lint, O> {
     pub stealer: Stealer<Work<'file>>,
-    pub lints: &'lints [Lint],
+    pub lints: &'lint [Lint],
     pub output: O,
 }
 
 #[derive(Debug, Clone)]
 pub struct Match<'file, 'lint> {
-    pub file: FileOff<'file>,
+    pub prose: ProseOff<'file>,
     pub lint: &'lint Lint,
     pub line: u32,
     pub column: u32,
@@ -54,56 +58,72 @@ pub struct Match<'file, 'lint> {
 // TODO: Or maybe rayon over the lints and regexes
 // TODO: Maybe instead of giving the Worker an output struct, just give it the sending side of a
 //       channel; this would simplify things & reduce duplicated code
-impl<'file, 'lints, O: Output<'file, 'lints>> Worker<'file, 'lints, O> {
-    pub fn exec(&self) {
+// TODO: [#A] Error handling
+impl<'file, 'lint, O: Output<'file, 'lint>> Worker<'file, 'lint, O> {
+    pub fn exec(self) {
         loop {
             match self.stealer.steal() {
                 Steal::Empty | Steal::Retry => continue,
                 Steal::Data(Work::Quit) => break,
-                Steal::Data(Work::File(fw)) => self.search(fw),
-            }
+                Steal::Data(Work::Prose(fw)) => {
+                    if let Err(e) = self.search(fw) {
+                        println!("{}", e);
+                        break;
+                    }
+                }
+            };
         }
+
+        self.output.close();
     }
 
-    fn search(&self, work: FileOff<'file>) {
+    fn search(&self, work: ProseOff<'file>) -> Result<(), Error> {
         for lint in self.lints {
             if let Some(ref token_regex) = lint.tokens {
-                let regex = RegexBuilder::new(token_regex).build().unwrap();
-                if regex.is_match(work.file.text) {
+                let regex = RegexBuilder::new(token_regex).build()?;
+                if regex.is_match(&work.prose.text) {
                     self.search_one(work, lint, regex, None);
                 }
             }
 
             let regexes = lint.mapping.iter().map(|x| x.0).collect::<OrderSet<_>>();
-            let set = RegexSetBuilder::new(&regexes).build().unwrap();
+            let set = RegexSetBuilder::new(&regexes).build()?;
 
-            for regex in set.matches(work.file.text) {
+            for regex in set.matches(&work.prose.text) {
                 let regex = regexes.get_index(regex).unwrap();
                 let value = lint.mapping.get(*regex).unwrap();
-                let regex = RegexBuilder::new(regex).build().unwrap();
+                let regex = RegexBuilder::new(regex).build()?;
                 self.search_one(work, lint, regex, Some(value));
             }
         }
+
+        Ok(())
     }
 
     /// Search one file with one regex from one lint.
     /// This is separated out to reduce code duplication and to aid future refactoring efforts (in
     /// case we want to parallelize things further and only have each worker work on this tiny piece
     /// of work)
-    fn search_one(&self, work: FileOff<'file>, lint: &'lints Lint, regex: Regex, value: Option<&'lints str>) {
-        for mat in regex.find_iter(work.file.text) {
-            let (l, c) = unimplemented!();
+    fn search_one(
+        &self,
+        work: ProseOff<'file>,
+        lint: &'lint Lint,
+        regex: Regex,
+        value: Option<&'lint str>,
+    ) {
+        for mat in regex.find_iter(&work.prose.text) {
+            // TODO: [#A] Proper line/column
+            let (l, c) = (1, 1);
             let offset = Offset {
-                start: work.offset.start + mat.start() as u32,
-                end: work.offset.end + mat.end() as u32,
+                start: work.offset.start + mat.start() as u64,
+                end: work.offset.end + mat.end() as u64,
             };
 
+            // TODO: [#A] strfmt?
+
             self.output.exec(Match {
-                file: FileOff {
-                    offset,
-                    ..work
-                },
-                lint: lint,
+                prose: ProseOff { offset, ..work },
+                lint,
                 line: l,
                 column: c,
                 value_str: value,
@@ -117,6 +137,5 @@ pub trait Output<'file, 'lint> {
     type Close;
 
     fn exec(&self, m: Match<'file, 'lint>) -> Self::Res;
-
-    fn close(&self) -> Self::Close;
+    fn close(self) -> Self::Close;
 }

@@ -25,11 +25,11 @@ impl Opt {
         let unicode = !ms.is_present("no-unicode");
 
         Ok(Opt {
-            lints: lints,
-            style: style,
-            split: split,
-            unicode: unicode,
-            files: files,
+            lints,
+            style,
+            split,
+            files,
+            unicode,
         })
     }
 }

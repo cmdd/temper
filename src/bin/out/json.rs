@@ -1,55 +1,65 @@
-use crossbeam_channel::{Sender, Receiver};
+use crossbeam_channel::{Receiver, Sender};
 use failure::Error;
 use serde_json;
 
-use cli::*;
 use temper::prose::*;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-struct JsonMatch<'file, 'lint> {
-    fname: &'file str,
-    lint: &'lint str,
+pub struct JsonMatch<'file, 'lint> {
+    pub fname: &'file str,
+    pub lint: &'lint str,
+    pub message: &'lint str,
 }
 
-enum JsonMsg<'file, 'lint> {
+pub enum JsonMsg<'file, 'lint> {
     Match(JsonMatch<'file, 'lint>),
     Done,
 }
 
-struct JsonOutput<'file, 'lint> {
-    tx: Sender<JsonMsg<'file, 'lint>>,
+pub struct JsonOutput<'file, 'lint> {
+    pub tx: Sender<JsonMsg<'file, 'lint>>,
 }
 
 impl<'file, 'lint> Output<'file, 'lint> for JsonOutput<'file, 'lint> {
-    type Res = Result<(), Error>;
-    type Close = Result<(), Error>;
+    type Res = ();
+    type Close = ();
 
+    // TODO: [#A] strfmt
     fn exec(&self, m: Match<'file, 'lint>) -> Self::Res {
         let json_match = JsonMatch {
-            fname: &m.file.file.name,
+            fname: &m.prose.prose.name,
             lint: &m.lint.name,
+            message: &m.lint.msg,
         };
 
-        self.tx.send(JsonMsg::Match(json_match))?;
+        self.tx.send(JsonMsg::Match(json_match)).unwrap();
 
-        Ok(())
+        ()
     }
 
-    fn close(&self) -> Self::Close {
-        self.tx.send(JsonMsg::Done)?;
-
-        Ok(())
+    fn close(self) -> Self::Close {
+        self.tx.send(JsonMsg::Done).unwrap();
+        drop(self.tx);
+        ()
     }
 }
 
-struct JsonPrinter<'file, 'lint> {
-    matches: Vec<JsonMatch<'file, 'lint>>,
-    rx: Receiver<JsonMsg<'file, 'lint>>,
-    tx: Sender<JsonMsg<'file, 'lint>>,
+pub struct JsonOrchestrator<'file, 'lint> {
+    pub matches: Vec<JsonMatch<'file, 'lint>>,
+    pub rx: Receiver<JsonMsg<'file, 'lint>>,
 }
 
-impl<'file, 'lint> JsonPrinter<'file, 'lint> {
-    fn all_to_json(&self, nrx: u8) -> Result<String, Error> {
+impl<'file, 'lint> JsonOrchestrator<'file, 'lint> {
+    pub fn print_all(self, nrx: u8) -> Result<u32, Error> {
+        let res = self.all_to_json(nrx)?;
+
+        println!("{}", res.0);
+
+        Ok(res.1 as u32)
+    }
+
+    // TODO: Maybe just wait until everything's closed
+    pub fn all_to_json(mut self, nrx: u8) -> Result<(String, u32), Error> {
         let mut done = 0;
         for msg in self.rx.iter() {
             match msg {
@@ -63,10 +73,10 @@ impl<'file, 'lint> JsonPrinter<'file, 'lint> {
             }
         }
 
-        // TODO sort...
+        // TODO: [#A] sort...
 
-        let s = serde_json::to_string(&self.matches)?;
+        let s = serde_json::to_string(&self.matches).unwrap();
 
-        Ok(s)
+        Ok((s, self.matches.len() as u32))
     }
 }
